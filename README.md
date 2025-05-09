@@ -65,15 +65,18 @@ bashflutter run
 Common Issues and Solutions
 "NDK did not have a source.properties file" Error
 If you see this error:
+
 [CXX1101] NDK at C:\...\Android\Sdk\ndk\... did not have a source.properties file
 Solution:
 
 Open Android Studio > SDK Manager > SDK Tools tab
+
 Check "NDK (Side by side)" and "CMake"
 Click "Apply" and wait for installation to complete
 Run flutter clean followed by flutter run
 
 Syntax Error in build.gradle.kts
+
 If you see errors about unexpected tokens in the Gradle files:
 Solution:
 Kotlin DSL requires assignments with equals signs:
@@ -81,10 +84,12 @@ Kotlin DSL requires assignments with equals signs:
 Change ndkVersion "25.1.8937393" to ndkVersion = "25.1.8937393"
 
 Device Not Authorized
+
 If your device shows as "unauthorized" when connected:
 Solution:
 
 Disconnect your device
+
 Go to Settings > Developer options
 Revoke USB debugging authorizations
 Reconnect your device
@@ -98,6 +103,7 @@ ios/ - iOS-specific configuration files (if applicable)
 assets/ - Contains images, fonts, and other static files
 
 Contributing
+
 Please read CONTRIBUTING.md for details on our code of conduct and the process for submitting pull requests.
 License
 This project is licensed under the MIT License - see the LICENSE.md file for details
