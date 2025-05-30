@@ -1,4 +1,4 @@
-package com.example.swimming_app
+package com.SwimSight.app
 
 import io.flutter.embedding.android.FlutterActivity
 

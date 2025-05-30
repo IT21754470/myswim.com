@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "702238268895",
+    "project_id": "swimsight-bb53e",
+    "storage_bucket": "swimsight-bb53e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:702238268895:android:7cedcf73b8fbf27027786a",
+        "android_client_info": {
+          "package_name": "com.SwimSight.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_76aG3XqgdNXfihMLBCQC8PtsepaB2K8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
