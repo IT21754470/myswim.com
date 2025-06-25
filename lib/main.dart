@@ -6,10 +6,14 @@ import 'widgets/auth_wrapper.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/auth/forgot_password_screen.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'screens/main_layout.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();  // ✅ Make sure this is here
+  runApp(MyApp());
   
   try {
     await Firebase.initializeApp(

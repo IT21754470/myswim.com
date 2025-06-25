@@ -7,16 +7,25 @@ environment:
   sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
+
   flutter:
     sdk: flutter
+   
     
   # Use older Firebase versions that work with NDK 25
+  google_sign_in: ^6.1.5
+
   firebase_core: ^2.20.0
   firebase_auth: ^4.12.0
   cloud_firestore: ^4.9.0
+
+ 
+  image_picker: ^1.0.4
   
   # UI
   cupertino_icons: ^1.0.6
+  shared_preferences: ^2.5.3
+  firebase_storage: ^11.6.5
 
 dev_dependencies:
   flutter_test:
