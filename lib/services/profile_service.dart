@@ -10,33 +10,46 @@ class ProfileService {
   static final FirebaseAuth _auth = FirebaseAuth.instance;
 
   // Get current user's profile from Firestore
-  static Future<UserProfile?> getUserProfile() async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) {
-        print('❌ No authenticated user found');
-        return null;
-      }
-
-      print('✅ Getting profile for user: ${user.uid}');
-      final doc = await _firestore
-          .collection('profiles')
-          .doc(user.uid)
-          .get();
-
-      if (doc.exists && doc.data() != null) {
-        print('✅ Profile loaded successfully');
-        return UserProfile.fromMap(doc.data()!);
-      }
-
-      print('⚠️ No profile document found');
-      return null;
-    } catch (e) {
-      print('❌ Error getting user profile: $e');
+  // In your ProfileService.dart, make sure this is consistent:
+static Future<UserProfile?> getUserProfile() async {
+  try {
+    final user = _auth.currentUser;
+    if (user == null) {
+      print('❌ No authenticated user found');
       return null;
     }
-  }
 
+    print('✅ Getting profile for user: ${user.uid}');
+    final doc = await _firestore
+        .collection('profiles') // ✅ Make sure this matches everywhere
+        .doc(user.uid)
+        .get();
+
+    if (doc.exists && doc.data() != null) {
+      print('✅ Profile loaded successfully: ${doc.data()}');
+      return UserProfile.fromMap(doc.data()!);
+    }
+
+    print('⚠️ No profile document found, creating default...');
+    
+    // ✅ Create and save default profile immediately
+    final defaultProfile = UserProfile(
+      name: user.displayName ?? user.email?.split('@')[0] ?? 'Swimmer',
+      gender: 'Male',
+      totalSessions: 0,
+      totalDistance: 0.0,
+      totalHours: 0,
+      createdAt: DateTime.now(),
+    );
+    
+    await saveUserProfile(defaultProfile);
+    return defaultProfile;
+    
+  } catch (e) {
+    print('❌ Error getting user profile: $e');
+    return null;
+  }
+}
   // Save user profile to Firestore
   static Future<void> saveUserProfile(UserProfile profile) async {
     try {
