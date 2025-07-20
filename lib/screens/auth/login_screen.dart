@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+
 import '../../services/auth_service.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
@@ -154,16 +154,16 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   }
 
   Widget _buildHeaderSection() {
-    return Column(
+    return const Column(
       children: [
         // App Logo with Animation
-     const AppLogo(
-   size: 120,
-   showShadow: true,
-),
-        
+        AppLogo(
+          size: 120,
+          showShadow: true,
+        ),
+
         // App Title
-        const Text(
+        Text(
           'SwimSight',
           style: TextStyle(
             fontSize: 36,
@@ -172,10 +172,10 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             letterSpacing: 1.5,
           ),
         ),
-        const SizedBox(height: 8),
-        
+        SizedBox(height: 8),
+
         // Subtitle
-        const Text(
+        Text(
           'Track Your Swimming Journey',
           style: TextStyle(
             fontSize: 16,
