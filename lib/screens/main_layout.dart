@@ -660,7 +660,7 @@ void _onItemTapped(int index) {
             height: size,
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) {
-              print('❌ Error displaying base64 image in navbar: $error');
+              print('❌ Error displaying base64 image in navbar1: $error');
               return _buildDefaultAvatar();
             },
           ),
