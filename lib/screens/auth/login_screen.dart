@@ -48,7 +48,54 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     _animationController.dispose();
     super.dispose();
   }
+Future<void> _signInWithGoogle() async {
+  setState(() => _isLoading = true);
+  HapticFeedback.lightImpact();
 
+  try {
+    await _authService.signInWithGoogle();
+    
+    if (mounted) {
+      HapticFeedback.mediumImpact();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 12),
+              Text('Welcome! Google sign-in successful'),
+            ],
+          ),
+          backgroundColor: Colors.green.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+  } catch (e) {
+    if (mounted) {
+      HapticFeedback.heavyImpact();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(child: Text('Google sign-in failed: $e')),
+            ],
+          ),
+          backgroundColor: Colors.red.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+  } finally {
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
+  }
+}
   Future<void> _signIn() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -187,80 +234,159 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     );
   }
 
-  Widget _buildLoginCard() {
-    return Container(
-      padding: const EdgeInsets.all(28),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
+ Widget _buildLoginCard() {
+  return Container(
+    padding: const EdgeInsets.all(28),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.1),
+          blurRadius: 20,
+          offset: const Offset(0, 10),
+        ),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Welcome Text
+        const Text(
+          'Welcome Back!',
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF2A5298),
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Welcome Text
-          const Text(
-            'Welcome Back!',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF2A5298),
-            ),
-            textAlign: TextAlign.center,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Sign in to continue your swimming journey',
+          style: TextStyle(
+            fontSize: 14,
+            color: Colors.grey,
           ),
-          const SizedBox(height: 8),
-          const Text(
-            'Sign in to continue your swimming journey',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 32),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 32),
 
-          // Email Field
-          _buildEmailField(),
-          const SizedBox(height: 20),
+        // ✅ Email Field (moved to top)
+        _buildEmailField(),
+        const SizedBox(height: 20),
 
-          // Password Field
-          _buildPasswordField(),
-          const SizedBox(height: 16),
+        // ✅ Password Field
+        _buildPasswordField(),
+        const SizedBox(height: 16),
 
-          // Forgot Password Link
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const ForgotPasswordScreen()),
-                );
-              },
-              child: const Text(
-                'Forgot Password?',
-                style: TextStyle(
-                  color: Color(0xFF2A5298),
-                  fontSize: 14,
-                ),
+        // ✅ Forgot Password Link
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ForgotPasswordScreen()),
+              );
+            },
+            child: const Text(
+              'Forgot Password?',
+              style: TextStyle(
+                color: Color(0xFF2A5298),
+                fontSize: 14,
               ),
             ),
           ),
-          const SizedBox(height: 24),
+        ),
+        const SizedBox(height: 24),
 
-          // Sign In Button
-          _buildSignInButton(),
-        ],
+        // ✅ Sign In Button (email/password login)
+        _buildSignInButton(),
+        const SizedBox(height: 24),
+
+        // ✅ Divider (moved after login button)
+        _buildDivider(),
+        const SizedBox(height: 24),
+
+        // ✅ Google Sign-In Button (moved to bottom)
+        _buildGoogleSignInButton(),
+      ],
+    ),
+  );
+}
+Widget _buildGoogleSignInButton() {
+  return Container(
+    height: 56,
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.grey.shade300, width: 1.5),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.05),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
+        ),
+      ],
+    ),
+    child: ElevatedButton(
+      onPressed: _isLoading ? null : _signInWithGoogle,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color.fromARGB(255, 207, 56, 56),
+        foregroundColor: const Color.fromARGB(255, 255, 254, 254),
+        shadowColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
       ),
-    );
-  }
+      child: _isLoading
+          ? const SizedBox(
+              height: 24,
+              width: 24,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2A5298)),
+              ),
+            )
+          : Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+               
+                const SizedBox(width: 12),
+                const Text(
+                  'Continue with Google',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+    ),
+  );
+}
 
+// ✅ Add Divider
+Widget _buildDivider() {
+  return Row(
+    children: [
+      Expanded(child: Divider(color: Colors.grey.shade300)),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Text(
+          'OR',
+          style: TextStyle(
+            color: Colors.grey.shade600,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+      Expanded(child: Divider(color: Colors.grey.shade300)),
+    ],
+  );
+}
   Widget _buildEmailField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -413,6 +539,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
               ),
       ),
     );
+
+    
   }
 
   Widget _buildRegisterSection() {
