@@ -89,7 +89,7 @@ class _ImprovementPredictionScreenState extends State<ImprovementPredictionScree
     setState(() {
       _trainingHistory = [];
       _predictionResponse = null;
-      _errorMessage = 'Error loading training data: $e';
+      _errorMessage = 'Error loading training data23: $e';
     });
   } finally {
     setState(() {
