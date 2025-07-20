@@ -666,7 +666,7 @@ void _onItemTapped(int index) {
           ),
         );
       } catch (e) {
-        print('❌ Error decoding base64 image in navbar123: $e');
+        print('❌ Error decoding base64 image in navbar12: $e');
         return _buildDefaultAvatar();
       }
     } else {
