@@ -2,99 +2,273 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:swimming_app/models/user_profile.dart';
 import '../models/training_session.dart';
-import '../services/profile_service.dart'; // ✅ Import your ProfileService
+import '../services/profile_service.dart';
 
 class TrainingSessionService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  // Collection names
   static const String _trainingSessions = 'training_sessions';
 
-  /// Get all training sessions for the current user
+  /// ✅ FIXED: Get all training sessions with proper Timestamp handling
   static Future<List<TrainingSession>> getUserTrainingSessions() async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) {
+        print('❌ No user logged in');
+        return [];
+      }
+
+      print('🔍 Fetching training sessions for user: ${user.uid}');
+
+      QuerySnapshot querySnapshot;
+      try {
+        querySnapshot = await _firestore
+            .collection(_trainingSessions)
+            .where('userId', isEqualTo: user.uid)
+            .get();
+      } catch (e) {
+        print('❌ Main query failed: $e');
+        return await _tryAlternativeQueries();
+      }
+
+      print('✅ Found ${querySnapshot.docs.length} raw documents');
+      
+      if (querySnapshot.docs.isEmpty) {
+        print('ℹ️ No sessions found, trying alternative queries...');
+        return await _tryAlternativeQueries();
+      }
+
+      // ✅ FIXED: Better data processing with Timestamp handling
+      final sessions = <TrainingSession>[];
+      int validCount = 0;
+      int invalidCount = 0;
+      
+      for (final doc in querySnapshot.docs) {
+        try {
+          final data = doc.data() as Map<String, dynamic>;
+          
+          // ✅ Don't log raw data to avoid Timestamp JSON errors
+          print('📄 Processing document ${doc.id}');
+          
+          // ✅ FIXED: Validate with proper field checking
+          if (_isValidSessionData(data)) {
+            final session = TrainingSession.fromFirestore(data, doc.id);
+            sessions.add(session);
+            validCount++;
+            print('✅ Session ${doc.id} parsed successfully');
+            print('   - Date: ${session.date}');
+            print('   - Stroke: ${session.strokeType}');
+            print('   - Distance: ${session.trainingDistance}m');
+            print('   - Time: ${session.actualTime}s');
+          } else {
+            invalidCount++;
+            print('❌ Session ${doc.id} is invalid');
+            // ✅ Better field validation logging
+            _logValidationErrors(data);
+          }
+        } catch (e) {
+          invalidCount++;
+          print('❌ Error parsing session ${doc.id}: $e');
+          continue;
+        }
+      }
+
+      print('📊 Session processing summary:');
+      print('   - Total documents: ${querySnapshot.docs.length}');
+      print('   - Valid sessions: $validCount');
+      print('   - Invalid sessions: $invalidCount');
+
+      // ✅ IMPORTANT: Sync profile stats with actual session count
+      await _syncProfileStats(sessions);
+
+      // Sort by date (newest first)
+      sessions.sort((a, b) => b.date.compareTo(a.date));
+      
+      print('✅ Successfully loaded ${sessions.length} valid sessions');
+      return sessions;
+
+    } catch (e) {
+      print('❌ Error fetching training sessions: $e');
+      return [];
+    }
+  }
+
+  /// ✅ NEW: Sync profile stats with actual session data
+  static Future<void> _syncProfileStats(List<TrainingSession> sessions) async {
+    try {
+      print('🔄 Syncing profile stats with actual session data...');
+      
+      final profile = await ProfileService.getUserProfile();
+      if (profile == null) return;
+
+      // Calculate actual totals from sessions
+      final actualSessionCount = sessions.length;
+      final actualTotalDistance = sessions.fold<double>(0.0, (sum, session) => sum + (session.trainingDistance / 1000));
+      final actualTotalHours = sessions.fold<int>(0, (sum, session) => sum + (session.sessionDuration / 60).round());
+
+      // Check if sync is needed
+      if (profile.totalSessions != actualSessionCount ||
+          (profile.totalDistance - actualTotalDistance).abs() > 0.1 ||
+          profile.totalHours != actualTotalHours) {
+        
+        print('⚠️ Profile stats mismatch detected:');
+        print('   - Profile: ${profile.totalSessions} sessions, ${profile.totalDistance}km, ${profile.totalHours}h');
+        print('   - Actual: $actualSessionCount sessions, ${actualTotalDistance.toStringAsFixed(2)}km, ${actualTotalHours}h');
+        
+        // Update profile with correct stats
+        final updatedProfile = profile.copyWith(
+          totalSessions: actualSessionCount,
+          totalDistance: actualTotalDistance,
+          totalHours: actualTotalHours,
+          updatedAt: DateTime.now(),
+        );
+        
+        await ProfileService.saveUserProfile(updatedProfile);
+        print('✅ Profile stats synchronized successfully');
+      } else {
+        print('✅ Profile stats are already in sync');
+      }
+    } catch (e) {
+      print('❌ Error syncing profile stats: $e');
+    }
+  }
+
+  /// ✅ NEW: Better validation error logging
+  static void _logValidationErrors(Map<String, dynamic> data) {
+    print('   Validation errors:');
+    if (data['trainingDistance'] == null) print('     - Missing trainingDistance');
+    if (data['actualTime'] == null) print('     - Missing actualTime');
+    if (data['strokeType'] == null) print('     - Missing strokeType');
+    if (data['date'] == null) print('     - Missing date');
+    
+    if (data['trainingDistance'] != null) {
+      try {
+        final distance = (data['trainingDistance'] as num).toDouble();
+        if (distance <= 0) print('     - Invalid distance: $distance');
+      } catch (e) {
+        print('     - Invalid distance type: ${data['trainingDistance']?.runtimeType}');
+      }
+    }
+    
+    if (data['actualTime'] != null) {
+      try {
+        final time = (data['actualTime'] as num).toDouble();
+        if (time <= 0) print('     - Invalid time: $time');
+      } catch (e) {
+        print('     - Invalid time type: ${data['actualTime']?.runtimeType}');
+      }
+    }
+  }
+
+  /// ✅ FIXED: Better validation that handles Timestamps
+  static bool _isValidSessionData(Map<String, dynamic> data) {
+    try {
+      // Check for essential fields
+      if (data['trainingDistance'] == null ||
+          data['actualTime'] == null ||
+          data['strokeType'] == null ||
+          data['date'] == null) {
+        return false;
+      }
+
+      // Validate numeric fields
+      final distance = (data['trainingDistance'] as num).toDouble();
+      final time = (data['actualTime'] as num).toDouble();
+      
+      if (distance <= 0 || time <= 0) {
+        return false;
+      }
+
+      // Validate date field (can be Timestamp or String)
+      if (data['date'] is! Timestamp && data['date'] is! String) {
+        return false;
+      }
+
+      // If date is string, try to parse it
+      if (data['date'] is String) {
+        DateTime.parse(data['date'] as String);
+      }
+
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// ✅ IMPLEMENTED: Complete delete functionality
+  static Future<void> deleteTrainingSession(String sessionId) async {
     try {
       final user = _auth.currentUser;
       if (user == null) {
         throw Exception('No user logged in');
       }
 
-      print('🔍 Fetching training sessions for user: ${user.uid}');
+      print('🗑️ Deleting training session: $sessionId');
 
-      // ✅ Remove orderBy to avoid index requirement for now
-      final querySnapshot = await _firestore
+      // Get the session data before deleting for profile update
+      final sessionDoc = await _firestore
           .collection(_trainingSessions)
-          .where('userId', isEqualTo: user.uid)
+          .doc(sessionId)
           .get();
 
-      print('✅ Found ${querySnapshot.docs.length} training sessions');
-      
-      if (querySnapshot.docs.isNotEmpty) {
-        print('📄 First document data: ${querySnapshot.docs.first.data()}');
+      if (!sessionDoc.exists) {
+        throw Exception('Session not found');
       }
 
-      // ✅ Convert documents and sort manually
-      final sessions = querySnapshot.docs.map((doc) {
-        final data = doc.data();
-        print('🔄 Converting document ${doc.id}: $data');
-        return TrainingSession.fromFirestore(data, doc.id);
-      }).toList();
+      final sessionData = sessionDoc.data() as Map<String, dynamic>;
+      final distance = (sessionData['trainingDistance'] as num?)?.toDouble() ?? 0.0;
+      final duration = (sessionData['sessionDuration'] as num?)?.toDouble() ?? 0.0;
 
-      // ✅ Sort by date manually (newest first)
-      sessions.sort((a, b) => b.date.compareTo(a.date));
-      
-      return sessions;
+      // Delete the session
+      await _firestore
+          .collection(_trainingSessions)
+          .doc(sessionId)
+          .delete();
+
+      print('✅ Session deleted successfully');
+
+      // ✅ Update profile stats
+      await _updateProfileAfterDelete(distance, duration);
 
     } catch (e) {
-      print('❌ Error fetching training sessions: $e');
-      return await _tryAlternativeQueries();
+      print('❌ Error deleting training session: $e');
+      throw e;
     }
   }
-  /// ✅ Use your ProfileService instead of custom method
- static Future<Map<String, dynamic>?> getUserProfile() async {
-  try {
-    print('🔍 Getting user profile via ProfileService...');
-    final profile = await ProfileService.getUserProfile();
-    
-    if (profile != null) {
-      print('✅ Profile found: ${profile.name}, sessions: ${profile.totalSessions}');
-      return {
-        'gender': profile.gender ?? 'Male',
-        'name': profile.name ?? 'Swimmer',
-        'age': profile.age,
-        'weight': profile.weight,
-        'favoriteStyle': profile.favoriteStyle,
-        'totalSessions': profile.totalSessions,
-        'totalDistance': profile.totalDistance,
-        'totalHours': profile.totalHours,
-      };
-    } else {
-      print('❌ No profile found');
-      return {
-        'gender': 'Male',
-        'name': 'Swimmer',
-        'totalSessions': 0,
-        'totalDistance': 0.0,
-        'totalHours': 0,
-      };
+
+  /// ✅ NEW: Update profile stats after deleting a session
+  static Future<void> _updateProfileAfterDelete(double distance, double duration) async {
+    try {
+      final profile = await ProfileService.getUserProfile();
+      if (profile == null) return;
+
+      final newSessionCount = profile.totalSessions - 1;
+      final newTotalDistance = profile.totalDistance - (distance / 1000);
+      final newTotalHours = profile.totalHours - (duration / 60).round();
+
+      final updatedProfile = profile.copyWith(
+        totalSessions: newSessionCount > 0 ? newSessionCount : 0,
+        totalDistance: newTotalDistance > 0 ? newTotalDistance : 0.0,
+        totalHours: newTotalHours > 0 ? newTotalHours : 0,
+        updatedAt: DateTime.now(),
+      );
+
+      await ProfileService.saveUserProfile(updatedProfile);
+      print('✅ Profile updated after session deletion');
+    } catch (e) {
+      print('❌ Error updating profile after delete: $e');
     }
-  } catch (e) {
-    print('❌ Error getting user profile: $e');
-    return {
-      'gender': 'Male',
-      'name': 'Swimmer',
-      'totalSessions': 0,
-      'totalDistance': 0.0,
-      'totalHours': 0,
-    };
   }
-}
-  /// Fallback method to try different query approaches
+
+  /// ✅ IMPROVED: Better alternative queries with Timestamp handling
   static Future<List<TrainingSession>> _tryAlternativeQueries() async {
     final user = _auth.currentUser;
     if (user == null) return [];
 
     try {
+      print('🔄 Trying alternative query methods...');
+
       // Try with 'uid' field instead of 'userId'
       var querySnapshot = await _firestore
           .collection(_trainingSessions)
@@ -102,10 +276,22 @@ class TrainingSessionService {
           .get();
 
       if (querySnapshot.docs.isNotEmpty) {
-        print('✅ Found sessions using uid field');
-        return querySnapshot.docs.map((doc) {
-          return TrainingSession.fromFirestore(doc.data(), doc.id);
-        }).toList();
+        print('✅ Found ${querySnapshot.docs.length} sessions using uid field');
+        final sessions = <TrainingSession>[];
+        
+        for (final doc in querySnapshot.docs) {
+          try {
+            final data = doc.data() as Map<String, dynamic>;
+            if (_isValidSessionData(data)) {
+              sessions.add(TrainingSession.fromFirestore(data, doc.id));
+            }
+          } catch (e) {
+            print('❌ Error parsing alternative session ${doc.id}: $e');
+            continue;
+          }
+        }
+        
+        return sessions;
       }
 
       // Try different collection name
@@ -115,10 +301,22 @@ class TrainingSessionService {
           .get();
 
       if (querySnapshot.docs.isNotEmpty) {
-        print('✅ Found sessions in trainingSessions collection');
-        return querySnapshot.docs.map((doc) {
-          return TrainingSession.fromFirestore(doc.data(), doc.id);
-        }).toList();
+        print('✅ Found ${querySnapshot.docs.length} sessions in trainingSessions collection');
+        final sessions = <TrainingSession>[];
+        
+        for (final doc in querySnapshot.docs) {
+          try {
+            final data = doc.data() as Map<String, dynamic>;
+            if (_isValidSessionData(data)) {
+              sessions.add(TrainingSession.fromFirestore(data, doc.id));
+            }
+          } catch (e) {
+            print('❌ Error parsing collection session ${doc.id}: $e');
+            continue;
+          }
+        }
+        
+        return sessions;
       }
 
       print('ℹ️ No training sessions found with alternative queries');
@@ -130,258 +328,53 @@ class TrainingSessionService {
     }
   }
 
-  /// Get training sessions within a date range
-  static Future<List<TrainingSession>> getSessionsInDateRange(
-    DateTime startDate,
-    DateTime endDate,
-  ) async {
+  /// ✅ Get user profile
+  static Future<Map<String, dynamic>?> getUserProfile() async {
     try {
-      final user = _auth.currentUser;
-      if (user == null) {
-        throw Exception('No user logged in');
-      }
-
-      final querySnapshot = await _firestore
-          .collection(_trainingSessions)
-          .where('userId', isEqualTo: user.uid)
-          .where('date', isGreaterThanOrEqualTo: startDate.toIso8601String())
-          .where('date', isLessThanOrEqualTo: endDate.toIso8601String())
-          .orderBy('date', descending: true)
-          .get();
-
-      return querySnapshot.docs.map((doc) {
-        return TrainingSession.fromFirestore(doc.data(), doc.id);
-      }).toList();
-
-    } catch (e) {
-      print('❌ Error fetching sessions in date range: $e');
-      return [];
-    }
-  }
-
-  /// Get sessions for a specific stroke type
-  static Future<List<TrainingSession>> getSessionsForStroke(String strokeType) async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) {
-        throw Exception('No user logged in');
-      }
-
-      final querySnapshot = await _firestore
-          .collection(_trainingSessions)
-          .where('userId', isEqualTo: user.uid)
-          .where('strokeType', isEqualTo: strokeType)
-          .orderBy('date', descending: true)
-          .get();
-
-      return querySnapshot.docs.map((doc) {
-        return TrainingSession.fromFirestore(doc.data(), doc.id);
-      }).toList();
-
-    } catch (e) {
-      print('❌ Error fetching sessions for stroke: $e');
-      return [];
-    }
-  }
-
-  /// Save a new training session
-  static Future<String> saveTrainingSession(TrainingSession session) async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) {
-        throw Exception('No user logged in');
-      }
-
-      final sessionData = session.toFirestore();
-      sessionData['userId'] = user.uid;
-      sessionData['createdAt'] = FieldValue.serverTimestamp();
-      sessionData['updatedAt'] = FieldValue.serverTimestamp();
-
-      final docRef = await _firestore
-          .collection(_trainingSessions)
-          .add(sessionData);
-
-      print('✅ Training session saved with ID: ${docRef.id}');
-      return docRef.id;
-
-    } catch (e) {
-      print('❌ Error saving training session: $e');
-      throw e;
-    }
-  }
-
-  /// Update an existing training session
-  static Future<void> updateTrainingSession(TrainingSession session) async {
-    try {
-      if (session.id == null) {
-        throw Exception('Cannot update session without ID');
-      }
-
-      final sessionData = session.toFirestore();
-      sessionData['updatedAt'] = FieldValue.serverTimestamp();
-
-      await _firestore
-          .collection(_trainingSessions)
-          .doc(session.id)
-          .update(sessionData);
-
-      print('✅ Training session updated: ${session.id}');
-
-    } catch (e) {
-      print('❌ Error updating training session: $e');
-      throw e;
-    }
-  }
-
-  /// Delete a training session
-  static Future<void> deleteTrainingSession(String sessionId) async {
-    try {
-      await _firestore
-          .collection(_trainingSessions)
-          .doc(sessionId)
-          .delete();
-
-      print('✅ Training session deleted: $sessionId');
-
-    } catch (e) {
-      print('❌ Error deleting training session: $e');
-      throw e;
-    }
-  }
-
-  /// Get user profile
-  
-  /// Get training statistics
-  static Future<Map<String, dynamic>> getTrainingStats() async {
-    try {
-      final sessions = await getUserTrainingSessions();
+      print('🔍 Getting user profile via ProfileService...');
+      final profile = await ProfileService.getUserProfile();
       
-      if (sessions.isEmpty) {
+      if (profile != null) {
+        print('✅ Profile found: ${profile.name}, sessions: ${profile.totalSessions}');
         return {
+          'gender': profile.gender ?? 'Male',
+          'name': profile.name ?? 'Swimmer',
+          'age': profile.age,
+          'weight': profile.weight,
+          'favoriteStyle': profile.favoriteStyle,
+          'totalSessions': profile.totalSessions,
+          'totalDistance': profile.totalDistance,
+          'totalHours': profile.totalHours,
+        };
+      } else {
+        print('❌ No profile found');
+        return {
+          'gender': 'Male',
+          'name': 'Swimmer',
           'totalSessions': 0,
           'totalDistance': 0.0,
-          'totalTime': 0.0,
-          'averageTime': 0.0,
-          'bestTime': 0.0,
-          'favoriteStroke': 'Freestyle',
-          'averagePace': 0.0,
-          'totalCalories': 0.0,
-          'improvementRate': 0.0,
+          'totalHours': 0,
         };
       }
-
-      final totalSessions = sessions.length;
-      final totalDistance = sessions.totalDistance();
-      final totalTime = sessions.totalTrainingTime();
-      final averageTime = sessions.fold<double>(0, (sum, s) => sum + s.actualTime) / sessions.length;
-      final bestTime = sessions.map((s) => s.actualTime).reduce((a, b) => a < b ? a : b);
-      
-      // Find favorite stroke
-      final strokeCounts = <String, int>{};
-      for (final session in sessions) {
-        strokeCounts[session.strokeType] = (strokeCounts[session.strokeType] ?? 0) + 1;
-      }
-      final favoriteStroke = strokeCounts.entries.isNotEmpty
-          ? strokeCounts.entries.reduce((a, b) => a.value > b.value ? a : b).key
-          : 'Freestyle';
-
-      final averagePace = sessions.fold<double>(0, (sum, s) => sum + s.pacePer100m) / sessions.length;
-      final totalCalories = sessions.fold<double>(0, (sum, s) => sum + s.calculateCaloriesBurned());
-      final improvementRate = sessions.averageImprovement();
-
-      return {
-        'totalSessions': totalSessions,
-        'totalDistance': totalDistance,
-        'totalTime': totalTime,
-        'averageTime': averageTime,
-        'bestTime': bestTime,
-        'favoriteStroke': favoriteStroke,
-        'averagePace': averagePace,
-        'totalCalories': totalCalories,
-        'improvementRate': improvementRate,
-      };
-
     } catch (e) {
-      print('❌ Error getting training stats: $e');
+      print('❌ Error getting user profile: $e');
       return {
+        'gender': 'Male',
+        'name': 'Swimmer',
         'totalSessions': 0,
         'totalDistance': 0.0,
-        'totalTime': 0.0,
-        'averageTime': 0.0,
-        'bestTime': 0.0,
-        'favoriteStroke': 'Freestyle',
-        'averagePace': 0.0,
-        'totalCalories': 0.0,
-        'improvementRate': 0.0,
+        'totalHours': 0,
       };
     }
   }
 
-  /// Get recent sessions (last 30 days)
-  static Future<List<TrainingSession>> getRecentSessions({int days = 30}) async {
-    final endDate = DateTime.now();
-    final startDate = endDate.subtract(Duration(days: days));
-    return await getSessionsInDateRange(startDate, endDate);
-  }
-
-  /// Get personal bests for each stroke
-  static Future<Map<String, TrainingSession>> getPersonalBests() async {
+  /// ✅ NEW: Force refresh profile stats
+  static Future<void> refreshProfileStats() async {
     try {
       final sessions = await getUserTrainingSessions();
-      final personalBests = <String, TrainingSession>{};
-
-      for (final stroke in ['Freestyle', 'Backstroke', 'Breaststroke', 'Butterfly']) {
-        final strokeSessions = sessions.forStroke(stroke);
-        if (strokeSessions.isNotEmpty) {
-          personalBests[stroke] = strokeSessions.reduce((a, b) => 
-              a.actualTime < b.actualTime ? a : b);
-        }
-      }
-
-      return personalBests;
-
+      print('✅ Profile stats refreshed');
     } catch (e) {
-      print('❌ Error getting personal bests: $e');
-      return {};
-    }
-  }
-
-  /// Count total sessions for current user
-  static Future<int> getSessionCount() async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) return 0;
-
-      final querySnapshot = await _firestore
-          .collection(_trainingSessions)
-          .where('userId', isEqualTo: user.uid)
-          .get();
-
-      return querySnapshot.docs.length;
-
-    } catch (e) {
-      print('❌ Error getting session count: $e');
-      return 0;
-    }
-  }
-
-  /// Get sessions grouped by month
-  static Future<Map<String, List<TrainingSession>>> getSessionsByMonth() async {
-    try {
-      final sessions = await getUserTrainingSessions();
-      final sessionsByMonth = <String, List<TrainingSession>>{};
-
-      for (final session in sessions) {
-        final monthKey = '${session.date.year}-${session.date.month.toString().padLeft(2, '0')}';
-        sessionsByMonth[monthKey] ??= [];
-        sessionsByMonth[monthKey]!.add(session);
-      }
-
-      return sessionsByMonth;
-
-    } catch (e) {
-      print('❌ Error getting sessions by month: $e');
-      return {};
+      print('❌ Error refreshing profile stats: $e');
     }
   }
 }
