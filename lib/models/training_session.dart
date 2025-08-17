@@ -16,6 +16,8 @@ class TrainingSession {
   final String gender;
   final String? id; // Firestore document ID
   final DateTime? createdAt;
+  
+  var intensity;
 
   TrainingSession({
     required this.swimmerId,
@@ -33,6 +35,7 @@ class TrainingSession {
     required this.gender,
     this.id,
     this.createdAt,
+    this.intensity,
   });
 factory TrainingSession.fromFirestore(Map<String, dynamic> data, String documentId) {
   print('🔄 Parsing Firestore data: $data'); // Debug print
