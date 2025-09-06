@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+//import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/auth_service.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -200,65 +200,209 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
     );
   }
 
-  Widget _buildRegistrationCard() {
-    return Container(
-      padding: const EdgeInsets.all(28),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
+ Widget _buildRegistrationCard() {
+  return Container(
+    padding: const EdgeInsets.all(28),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: [
+        BoxShadow(
+          // ignore: deprecated_member_use
+          color: Colors.black.withOpacity(0.1),
+          blurRadius: 20,
+          offset: const Offset(0, 10),
+        ),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Welcome Text
+        const Text(
+          'Join SwimSight!',
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF764ba2),
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Welcome Text
-          const Text(
-            'Join SwimSight!',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF764ba2),
-            ),
-            textAlign: TextAlign.center,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Start tracking your swimming progress today',
+          style: TextStyle(
+            fontSize: 14,
+            color: Colors.grey,
           ),
-          const SizedBox(height: 8),
-          const Text(
-            'Start tracking your swimming progress today',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
-            ),
-            textAlign: TextAlign.center,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 32),
+
+        // ✅ Form Fields (moved to top)
+        _buildNameField(),
+        const SizedBox(height: 20),
+        _buildEmailField(),
+        const SizedBox(height: 20),
+        _buildPasswordField(),
+        const SizedBox(height: 20),
+        _buildConfirmPasswordField(),
+        const SizedBox(height: 24),
+
+        // ✅ Terms and Conditions
+        _buildTermsCheckbox(),
+        const SizedBox(height: 24),
+
+        // ✅ Register Button
+        _buildRegisterButton(),
+        const SizedBox(height: 24),
+
+        // ✅ Divider (moved after register button)
+        _buildDivider(),
+        const SizedBox(height: 24),
+
+        // ✅ Google Sign-In Button (moved to bottom)
+        _buildGoogleSignInButton(),
+      ],
+    ),
+  );
+}
+// ✅ Google Sign-In method
+Future<void> _signInWithGoogle() async {
+  setState(() => _isLoading = true);
+  HapticFeedback.lightImpact();
+
+  try {
+    await _authService.signInWithGoogle();
+    
+    if (mounted) {
+      HapticFeedback.mediumImpact();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 12),
+              Text('Welcome! Google sign-in successful'),
+            ],
           ),
-          const SizedBox(height: 32),
-
-          // Form Fields
-          _buildNameField(),
-          const SizedBox(height: 20),
-          _buildEmailField(),
-          const SizedBox(height: 20),
-          _buildPasswordField(),
-          const SizedBox(height: 20),
-          _buildConfirmPasswordField(),
-          const SizedBox(height: 24),
-
-          // Terms and Conditions
-          _buildTermsCheckbox(),
-          const SizedBox(height: 24),
-
-          // Register Button
-          _buildRegisterButton(),
-        ],
-      ),
-    );
+          backgroundColor: Colors.green.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      Navigator.pop(context); // Go back to previous screen or main app
+    }
+  } catch (e) {
+    if (mounted) {
+      HapticFeedback.heavyImpact();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(child: Text('Google sign-in failed: $e')),
+            ],
+          ),
+          backgroundColor: Colors.red.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+  } finally {
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
   }
+}
 
+// ✅ Google Sign-In Button
+Widget _buildGoogleSignInButton() {
+  return Container(
+    height: 56,
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.grey.shade300, width: 1.5),
+      boxShadow: [
+        BoxShadow(
+          // ignore: deprecated_member_use
+          color: Colors.black.withOpacity(0.05),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
+        ),
+      ],
+    ),
+    child: ElevatedButton(
+      onPressed: _isLoading ? null : _signInWithGoogle,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color.fromARGB(255, 218, 15, 15),
+        foregroundColor: const Color.fromARGB(255, 250, 245, 245),
+        shadowColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+      child: _isLoading
+          ? const SizedBox(
+              height: 24,
+              width: 24,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF764ba2)),
+              ),
+            )
+          : Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: const Color.fromARGB(255, 167, 147, 147),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Icon(
+                    Icons.login,
+                    color: Color(0xFF4285F4), // Google blue
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'Continue with Google',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+    ),
+  );
+}
+
+// ✅ Divider widget
+Widget _buildDivider() {
+  return Row(
+    children: [
+      Expanded(child: Divider(color: Colors.grey.shade300)),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Text(
+          'OR',
+          style: TextStyle(
+            color: Colors.grey.shade600,
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+      Expanded(child: Divider(color: Colors.grey.shade300)),
+    ],
+  );
+}
   Widget _buildNameField() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -509,6 +653,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
+            // ignore: deprecated_member_use
             color: const Color(0xFF764ba2).withOpacity(0.3),
             blurRadius: 12,
             offset: const Offset(0, 6),

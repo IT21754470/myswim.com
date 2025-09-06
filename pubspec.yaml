@@ -9,14 +9,27 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-    
-  # Use older Firebase versions that work with NDK 25
+
+  # Firebase & Auth
   firebase_core: ^2.20.0
   firebase_auth: ^4.12.0
   cloud_firestore: ^4.9.0
-  
+  firebase_storage: ^11.6.5
+
+  # Google Sign-In
+  google_sign_in: ^6.1.5
+
+  # Networking (⬅️ add this)
+  http: ^1.2.1
+
+  # Utility
+  intl: ^0.19.0
+  image_picker: ^1.0.4
+  shared_preferences: ^2.5.3
+ 
   # UI
   cupertino_icons: ^1.0.6
+  fl_chart: ^0.64.0 # ✅ Added for chart rendering
 
 dev_dependencies:
   flutter_test:
@@ -25,9 +38,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  
-  # Add this assets section
+
   assets:
     - assets/images/
-    # Or specifically:
+    # You can also add specific files like:
     # - assets/images/logo.jpg
