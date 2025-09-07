@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:swimming_app/services/training_session_service.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -48,6 +49,51 @@ static Future<UserProfile?> getUserProfile() async {
   } catch (e) {
     print('❌ Error getting user profile: $e');
     return null;
+  }
+}
+
+// Add this to ProfileService
+static Future<void> syncProfileStats() async {
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // Get actual sessions from database
+    final sessions = await TrainingSessionService.getUserTrainingSessions();
+    
+    // Calculate actual stats
+    final actualSessionCount = sessions.length;
+    final actualTotalDistance = sessions.fold<double>(0, (sum, session) => 
+        sum + (session.trainingDistance / 1000)); // Convert to km
+    final actualTotalHours = sessions.fold<int>(0, (sum, session) => 
+        sum + (session.sessionDuration / 60).round()); // Convert to hours
+
+    // Get existing profile
+    var profile = await getUserProfile();
+    if (profile == null) {
+      // Create new profile with correct stats
+      profile = UserProfile(
+        name: user.displayName ?? user.email?.split('@')[0] ?? 'Swimmer',
+        gender: 'Male',
+        totalSessions: actualSessionCount,
+        totalDistance: actualTotalDistance,
+        totalHours: actualTotalHours,
+        createdAt: DateTime.now(),
+      );
+    } else {
+      // Update existing profile with correct stats
+      profile = profile.copyWith(
+        totalSessions: actualSessionCount,
+        totalDistance: actualTotalDistance,
+        totalHours: actualTotalHours,
+        updatedAt: DateTime.now(),
+      );
+    }
+
+    await saveUserProfile(profile);
+    print('✅ Profile stats synced: $actualSessionCount sessions');
+  } catch (e) {
+    print('❌ Error syncing profile stats: $e');
   }
 }
   // Save user profile to Firestore

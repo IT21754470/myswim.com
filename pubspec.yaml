@@ -7,8 +7,23 @@ environment:
   sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
+
+
+
   flutter:
     sdk: flutter
+     # UI
+  
+  # Network
+  http: ^1.1.0  # 🆕 Add this for backend communication
+  
+  # Date formatting
+  
+   
+    
+  # Use older Firebase versions that work with NDK 25
+  google_sign_in: ^6.1.5
+
 
   # Firebase & Auth
   firebase_core: ^2.20.0

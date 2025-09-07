@@ -3,9 +3,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:swimming_app/models/user_profile.dart';
+import 'package:swimming_app/screens/fatigue_prediction_screen.dart';
 import 'improvement_prediction_screen.dart';
 import 'add_training_session_screen.dart';
-import '../services/profile_service.dart'; // ✅ Add this import
+import '../services/profile_service.dart';
+import "recommendations_screen.dart"; // ✅ Add this import
 
 class SwimmingInsightsScreen extends StatefulWidget {
   const SwimmingInsightsScreen({super.key});
@@ -239,25 +241,32 @@ class _SwimmingInsightsScreenState extends State<SwimmingInsightsScreen> {
 
             const SizedBox(height: 16),
 
-            _buildInsightCard(
-              title: 'Fatigue Prediction',
-              description: 'Monitor your training load and recovery needs',
-              icon: Icons.battery_alert,
-              sessionCount: sessionCount, // ✅ Pass session count
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFFfa709a), Color(0xFFfee140)],
-              ),
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Fatigue Prediction coming soon!')),
-                );
-              },
-            ),
+         // In your _buildInsightCard calls, update the fatigue prediction:
 
-            const SizedBox(height: 16),
-
+_buildInsightCard(
+  title: 'Fatigue Prediction',
+  description: 'Monitor your training load and recovery needs',
+  icon: Icons.battery_alert,
+  sessionCount: sessionCount,
+  gradient: const LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFFfa709a), Color.fromARGB(255, 187, 177, 120)],
+  ),
+  onTap: () async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const FatiguePredictionScreen(),
+      ),
+    );
+    if (result == true) {
+      _loadUserStats();
+    }
+  },
+),
+ const SizedBox(height: 16),
+ 
             _buildInsightCard(
               title: 'Insights & Recommendations',
               description: 'Personalized training tips and suggestions',
@@ -268,14 +277,19 @@ class _SwimmingInsightsScreenState extends State<SwimmingInsightsScreen> {
                 end: Alignment.bottomRight,
                 colors: [Color(0xFF667eea), Color(0xFF764ba2)],
               ),
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Recommendations coming soon!')),
-                );
-              },
-            ),
-
-            const SizedBox(height: 24),
+            onTap: () async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const RecommendationsScreen(),
+      ),
+    );
+    if (result == true) {
+      _loadUserStats();
+    }
+  },
+),
+ const SizedBox(height: 16),
 
             // ✅ Updated Recent Activity Section with real data
             _buildRecentActivitySection(),
