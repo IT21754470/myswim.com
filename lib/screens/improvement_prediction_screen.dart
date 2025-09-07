@@ -1,3 +1,5 @@
+// ignore_for_file: unused_local_variable, deprecated_member_use, unused_element, avoid_function_literals_in_foreach_calls, avoid_print
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:swimming_app/screens/add_training_session_screen.dart';
@@ -677,11 +679,11 @@ Widget _buildNoDataState() {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          const Row(
             children: [
-              const Icon(Icons.person, color: Color(0xFF4A90E2)),
-              const SizedBox(width: 8),
-              const Text(
+              Icon(Icons.person, color: Color(0xFF4A90E2)),
+              SizedBox(width: 8),
+              Text(
                 'Performance Summary',
                 style: TextStyle(
                   fontSize: 18,

@@ -1,4 +1,6 @@
 // lib/screens/swimmer_performance_screen.dart
+// ignore_for_file: unused_shown_name, unnecessary_import, prefer_const_declarations, deprecated_member_use
+
 import 'dart:ui' show FontFeature, TextDirection; // TextDirection needed for TextPainter
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';

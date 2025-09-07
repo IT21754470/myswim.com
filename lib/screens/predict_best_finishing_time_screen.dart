@@ -1,8 +1,15 @@
 // lib/screens/predict_best_finishing_time_screen.dart
+// ignore_for_file: deprecated_member_use, sort_child_properties_last, no_leading_underscores_for_local_identifiers, prefer_const_constructors, unnecessary_import
+
 import 'dart:ui' show FontFeature;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../models/swim_history_store.dart'; // <-- in-memory store
+
+// In-app history store
+import '../models/swim_history_store.dart';
+
+// 🔌 Backend prediction service (singleton: predictionService)
+import '../services/prediction_service.dart';
 
 /// ---- Vibrant Palette
 class BrandColors {
@@ -99,7 +106,6 @@ class _Status {
   const _Status(this.label, this.color, this.icon);
 }
 
-/// Distance-aware thresholds so short events need smaller deltas to count.
 _Status _progressStatus(double deltaSeconds, String distance) {
   if (deltaSeconds.isNaN || deltaSeconds.isInfinite) {
     return const _Status('No baseline', BrandColors.amber, Icons.thumbs_up_down_rounded);
@@ -124,14 +130,13 @@ _Status _progressStatus(double deltaSeconds, String distance) {
   return const _Status('Borderline', BrandColors.amber, Icons.thumbs_up_down_rounded);
 }
 
-/// ---- Prediction model
+/// ---- Local fallback prediction (used if backend fails)
 class PredictionResult {
   final String timeText;
   final String confidenceText;
   PredictionResult(this.timeText, this.confidenceText);
 }
 
-/// Payload returned back to caller (e.g., Performance)
 class PredictionTransfer {
   final DateTime raceDate;
   final String distance;
@@ -180,8 +185,8 @@ Future<PredictionResult> predictBestTime({
   // Water temperature: penalty if far from 27C, tiny bonus if ideal (26.5–27.5C)
   if (waterTempC != null) {
     final d = (waterTempC - 27.0).abs();
-    pred += d * 0.12;                 // penalty grows with distance from 27
-    if (d <= 0.5) pred -= 0.10;       // small improvement when near-ideal
+    pred += d * 0.12;
+    if (d <= 0.5) pred -= 0.10;
   }
 
   // Humidity: penalty >60%, small bonus in 45–60%
@@ -189,7 +194,7 @@ Future<PredictionResult> predictBestTime({
     if (humidityPct > 60) {
       pred += (humidityPct - 60) * 0.02;
     } else if (humidityPct >= 45) {
-      pred -= 0.08;                   // slightly favorable comfort band
+      pred -= 0.08;
     }
   }
 
@@ -230,7 +235,7 @@ String? _requiredHumidity(String? v) {
   return null;
 }
 
-/// ---- Screen with THREE tabs: Quick Predict + Training & Predict + History
+/// ---- Screen with THREE tabs
 class PredictBestFinishingTimeScreen extends StatefulWidget {
   const PredictBestFinishingTimeScreen({super.key});
 
@@ -274,6 +279,7 @@ class _PredictBestFinishingTimeScreenState extends State<PredictBestFinishingTim
     if (picked != null) setState(() => _raceDate = picked);
   }
 
+  // 🚀 QUICK PREDICT — uses backend, falls back to local model on error
   Future<void> _doPredict() async {
     if (!_quickFormKey.currentState!.validate()) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -281,19 +287,43 @@ class _PredictBestFinishingTimeScreenState extends State<PredictBestFinishingTim
       );
       return;
     }
+
     setState(() { _predicting = true; _predicted = null; _conf = null; });
-    final wt = double.tryParse(_waterCtrl.text.trim());
-    final hu = double.tryParse(_humidCtrl.text.trim());
-    final res = await predictBestTime(
-      raceDate: _raceDate,
-      distance: _distance,
-      stroke: _stroke,
-      waterTempC: wt,
-      humidityPct: hu,
-      bestTimeBaseline: _baselineCtrl.text.trim(),
-    );
-    if (!mounted) return;
-    setState(() { _predicting = false; _predicted = res.timeText; _conf = res.confidenceText; });
+
+    final wt = double.parse(_waterCtrl.text.trim());
+    final hu = double.parse(_humidCtrl.text.trim());
+
+    try {
+      final resp = await predictionService.predict(
+        swimmerId: 'anon',        // or collect from Training tab
+        name: 'Anonymous',
+        distance: _distance,      // '50m'|'100m'|'200m'|'400m'
+        stroke: _stroke,          // UI label (backend normalizes)
+        waterTemp: wt,
+        humidityPct: hu,          // 0..100
+        date: _raceDate,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _predicting = false;
+        _predicted = resp['predicted_best_time'] as String?;
+        final ci = (resp['confidence_interval'] as List?)?.cast<String>();
+        _conf = (ci != null && ci.length == 2) ? '${ci[0]}..${ci[1]}' : null;
+      });
+    } catch (e) {
+      // fallback to your local model if server fails (keeps UX smooth)
+      final res = await predictBestTime(
+        raceDate: _raceDate,
+        distance: _distance,
+        stroke: _stroke,
+        waterTempC: wt,
+        humidityPct: hu,
+        bestTimeBaseline: _baselineCtrl.text.trim(),
+      );
+      if (!mounted) return;
+      setState(() { _predicting = false; _predicted = res.timeText; _conf = res.confidenceText; });
+    }
   }
 
   void _applyToPerformance() {
@@ -433,7 +463,7 @@ class _PredictBestFinishingTimeScreenState extends State<PredictBestFinishingTim
                             Expanded(child: _FieldDateLike(label: 'Race date', value: DateFormat('yyyy-MM-dd').format(_raceDate), onTap: _pickDate)),
                             const SizedBox(width: 10),
                             Expanded(child: _Dropdown(label: 'Distance', value: _distance, items: const ['50m','100m','200m','400m'], onChanged: (v)=>setState(()=>_distance=v!))),
-                          ]), 
+                          ]),
                           const SizedBox(height: 10),
                           _Dropdown(label: 'Stroke', value: _stroke, items: const ['Freestyle','Backstroke','Breaststroke','Butterfly'], onChanged: (v)=>setState(()=>_stroke=v!)),
                         ],
@@ -504,7 +534,7 @@ class _PredictBestFinishingTimeScreenState extends State<PredictBestFinishingTim
                                       '${pct == null ? '' : ' (${(pct >= 0 ? '+' : '')}${pct.toStringAsFixed(1)}%)'}',
                                   tint: status.color,
                                 ),
-                            ]),
+                            ]), 
                             const SizedBox(height: 10),
                             GradientButton(text: 'Use in Performance', onPressed: _applyToPerformance, colors: colors),
                           ],
@@ -597,7 +627,7 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
-/// ---- “Glass” card helper (tinted gradient + border + soft shadow)
+/// ---- “Glass” card helper
 class _GlassCard extends StatelessWidget {
   final Widget child;
   final Gradient? gradient;
@@ -650,7 +680,7 @@ class _StatusPill extends StatelessWidget {
   }
 }
 
-/// ---- Quick Predict atoms (fancy colorful fields)
+/// ---- Quick Predict atoms
 class _TextField extends StatefulWidget {
   final String label;
   final TextEditingController controller;
@@ -838,7 +868,7 @@ class _DropdownState extends State<_Dropdown> {
   }
 }
 
-/// Public GradientButton (used by both tabs)
+/// Public GradientButton
 class GradientButton extends StatelessWidget {
   final String text;
   final VoidCallback? onPressed;
@@ -872,7 +902,7 @@ class GradientButton extends StatelessWidget {
 }
 
 /// ========================================================================
-/// Training + Predict tab (colorful styles kept across controls)
+/// Training + Predict tab
 /// ========================================================================
 class _TrainingAndPredictTabX extends StatefulWidget {
   final DateTime selectedDate;
@@ -985,7 +1015,7 @@ class _TrainingAndPredictTabXState extends State<_TrainingAndPredictTabX> {
     final hu = double.tryParse(_humidCtrl.text.trim());
     widget.onSaveEnvironment(wt, hu);
 
-    // write to history store
+    // write to history store (Training row)
     SwimHistoryStore().add(TrainingSession(
       createdAt: DateTime.now(),
       sessionDate: widget.selectedDate,
@@ -1007,26 +1037,52 @@ class _TrainingAndPredictTabXState extends State<_TrainingAndPredictTabX> {
     }
   }
 
+  // 🚀 TRAINING TAB PREDICT — uses backend, falls back to local model on error
   Future<void> _predict() async {
     if (!_validateAll()) {
       setState(() { _error = 'Please fill all required fields.'; });
       return;
     }
     setState(() { _predicting = true; _error = null; _predicted = null; _predConf = null; });
+
     try {
-      final wt = double.tryParse(_waterCtrl.text.trim());
-      final hu = double.tryParse(_humidCtrl.text.trim());
-      final res = await predictBestTime(
-        raceDate: widget.selectedDate,
+      final wt = double.parse(_waterCtrl.text.trim());
+      final hu = double.parse(_humidCtrl.text.trim());
+
+      final resp = await predictionService.predict(
+        swimmerId: _idCtrl.text.trim().isEmpty ? 'anon' : _idCtrl.text.trim(),
+        name: _nameCtrl.text.trim().isEmpty ? 'Anonymous' : _nameCtrl.text.trim(),
         distance: widget.distance,
         stroke: widget.stroke,
-        waterTempC: wt,
-        humidityPct: hu,
-        bestTimeBaseline: _bestCtrl.text.trim(),
+        waterTemp: wt,
+        humidityPct: hu,        // 0..100
+        date: widget.selectedDate,
       );
-      setState(() { _predicted = res.timeText; _predConf = res.confidenceText; });
+
+      if (!mounted) return;
+      final String? predicted = resp['predicted_best_time'] as String?;
+      final ci = (resp['confidence_interval'] as List?)?.cast<String>();
+      final String? conf = (ci != null && ci.length == 2) ? '${ci[0]}..${ci[1]}' : null;
+
+      setState(() { _predicted = predicted; _predConf = conf; });
     } catch (_) {
-      setState(() { _error = 'Could not generate prediction. Please try again.'; });
+      try {
+        final wt = double.tryParse(_waterCtrl.text.trim());
+        final hu = double.tryParse(_humidCtrl.text.trim());
+        final res = await predictBestTime(
+          raceDate: widget.selectedDate,
+          distance: widget.distance,
+          stroke: widget.stroke,
+          waterTempC: wt,
+          humidityPct: hu,
+          bestTimeBaseline: _bestCtrl.text.trim(),
+        );
+        if (!mounted) return;
+        setState(() { _predicted = res.timeText; _predConf = res.confidenceText; });
+      } catch (e) {
+        if (!mounted) return;
+        setState(() { _error = 'Could not generate prediction. Please try again.'; });
+      }
     } finally {
       if (mounted) setState(() { _predicting = false; });
     }
@@ -1335,7 +1391,7 @@ class _HistoryTabInsidePredictState extends State<_HistoryTabInsidePredict>
   }
 }
 
-/// ---- Small UI atoms for Training tab (colorful)
+/// ---- Small UI atoms for Training tab
 class _SectionLabelX extends StatelessWidget {
   final String text;
   const _SectionLabelX(this.text);
