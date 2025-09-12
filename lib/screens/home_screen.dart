@@ -481,7 +481,9 @@ Widget _buildFeatureCard({
   required VoidCallback onTap,
   required int sessionCount,
 }) {
-  final bool isEnabled = sessionCount > 0 || title == 'Swimmer Insights';
+  final bool isEnabled = sessionCount > 0 ||
+        title == 'Swimmer Insights' ||
+        title == 'Kick Analysis';
   final bool showRequirement = !isEnabled && title != 'Swimmer Insights';
 
   return GestureDetector(
