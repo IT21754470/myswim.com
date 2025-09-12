@@ -7,6 +7,7 @@ import 'injury_prediction_screen.dart';
 import 'add_training_session_screen.dart';
 import '../services/profile_service.dart';
 import '../models/user_profile.dart';
+import 'package:swimming_app/screens/kick_analysis.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -318,6 +319,28 @@ class _HomeScreenState extends State<HomeScreen> {
                         context,
                         MaterialPageRoute(
                           builder: (context) => const InjuryPredictionScreen(),
+                        ),
+                      );
+                      if (result == true) {
+                        _refreshStats();
+                      }
+                    },
+                  ),
+                  _buildFeatureCard(
+                    title: 'Kick Analysis',
+                    description: 'Analyze your kick technique',
+                    icon: Icons.directions_run,
+                    sessionCount: sessionCount,
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                    ),
+                    onTap: () async {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const KickAnalysisScreen(),
                         ),
                       );
                       if (result == true) {
