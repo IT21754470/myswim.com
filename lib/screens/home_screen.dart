@@ -7,6 +7,7 @@ import 'injury_prediction_screen.dart';
 import 'add_training_session_screen.dart';
 import '../services/profile_service.dart';
 import '../models/user_profile.dart';
+import 'package:swimming_app/screens/kick_analysis.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -325,6 +326,28 @@ class _HomeScreenState extends State<HomeScreen> {
                       }
                     },
                   ),
+                  _buildFeatureCard(
+                    title: 'Kick Analysis',
+                    description: 'Analyze your kick technique',
+                    icon: Icons.directions_run,
+                    sessionCount: sessionCount,
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                    ),
+                    onTap: () async {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const KickAnalysisScreen(),
+                        ),
+                      );
+                      if (result == true) {
+                        _refreshStats();
+                      }
+                    },
+                  ),
                 ],
               ),
 
@@ -458,7 +481,9 @@ Widget _buildFeatureCard({
   required VoidCallback onTap,
   required int sessionCount,
 }) {
-  final bool isEnabled = sessionCount > 0 || title == 'Swimmer Insights';
+  final bool isEnabled = sessionCount > 0 ||
+        title == 'Swimmer Insights' ||
+        title == 'Kick Analysis';
   final bool showRequirement = !isEnabled && title != 'Swimmer Insights';
 
   return GestureDetector(
