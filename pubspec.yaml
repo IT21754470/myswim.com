@@ -1,0 +1,54 @@
+name: swimming_app
+description: A new Flutter project.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+
+
+  flutter:
+    sdk: flutter
+     # UI
+  
+  # Network
+  http: ^1.1.0  # 🆕 Add this for backend communication
+  
+  # Date formatting
+  
+   
+    
+  # Use older Firebase versions that work with NDK 25
+  google_sign_in: ^6.1.5
+
+  firebase_core: ^2.20.0
+  firebase_auth: ^4.12.0
+  cloud_firestore: ^4.9.0
+  intl: ^0.19.0
+
+ 
+  image_picker: ^1.0.4
+
+  file_picker: ^8.1.2
+  video_player: ^2.9.2
+  
+  # UI
+  cupertino_icons: ^1.0.6
+  shared_preferences: ^2.5.3
+  firebase_storage: ^11.6.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+  
+  # Add this assets section
+  assets:
+    - assets/images/
+    # Or specifically:
+    # - assets/images/logo.jpg

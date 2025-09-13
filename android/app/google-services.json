@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "702238268895",
+    "project_id": "swimsight-bb53e",
+    "storage_bucket": "swimsight-bb53e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:702238268895:android:7cedcf73b8fbf27027786a",
+        "android_client_info": {
+          "package_name": "com.SwimSight.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "702238268895-3jmenjc59htb5vppu8gj2dutvafllq00.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.SwimSight.app",
+            "certificate_hash": "9df73adc233848881a0b13005afccdb6def50304"
+          }
+        },
+        {
+          "client_id": "702238268895-k22aod5aeaj858gn6og0o79ocfq91cvv.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_76aG3XqgdNXfihMLBCQC8PtsepaB2K8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "702238268895-k22aod5aeaj858gn6og0o79ocfq91cvv.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
