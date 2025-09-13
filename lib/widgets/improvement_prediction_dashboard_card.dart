@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 import '../screens/improvement_prediction_screen.dart';
 import '../widgets/mini_chart_painter.dart';

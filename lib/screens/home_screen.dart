@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print, deprecated_member_use, prefer_const_constructors, prefer_const_literals_to_create_immutables
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'swimmer_insights_screen.dart';
@@ -273,7 +275,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       final result = await Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => const CompetitionsScreen(),
+                          builder: (context) => const CompetitionScreen(),
                         ),
                       );
                       if (result == true) {
@@ -874,3 +876,5 @@ Widget _buildFeatureCard({
     );
   }
 }
+
+

@@ -1,3 +1,5 @@
+// ignore_for_file: unused_import, avoid_print, use_rethrow_when_possible, avoid_types_as_parameter_names
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:swimming_app/models/user_profile.dart';
