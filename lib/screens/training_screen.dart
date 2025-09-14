@@ -1,20 +1,16 @@
 import 'package:flutter/material.dart';
-import '../main.dart';
+//import '../main.dart';
 
-class trainingScreen extends StatelessWidget{
-  const trainingScreen({super.key});
+class TrainingScreen extends StatelessWidget {
+  const TrainingScreen({super.key});
 
   @override
-  Widget build(BuildContext context){
-
-    return Center(child: Text(
-      'Home Screen',
-      style:TextStyle(fontSize:24),
-    
-    ),
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Text(
+        'Home Screen',
+        style: TextStyle(fontSize: 24),
+      ),
     );
   }
-    
-  
-
 }

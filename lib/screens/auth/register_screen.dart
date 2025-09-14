@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+//import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/auth_service.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -208,6 +208,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
       borderRadius: BorderRadius.circular(20),
       boxShadow: [
         BoxShadow(
+          // ignore: deprecated_member_use
           color: Colors.black.withOpacity(0.1),
           blurRadius: 20,
           offset: const Offset(0, 10),
@@ -327,6 +328,7 @@ Widget _buildGoogleSignInButton() {
       border: Border.all(color: Colors.grey.shade300, width: 1.5),
       boxShadow: [
         BoxShadow(
+          // ignore: deprecated_member_use
           color: Colors.black.withOpacity(0.05),
           blurRadius: 8,
           offset: const Offset(0, 2),
@@ -651,6 +653,7 @@ Widget _buildDivider() {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
+            // ignore: deprecated_member_use
             color: const Color(0xFF764ba2).withOpacity(0.3),
             blurRadius: 12,
             offset: const Offset(0, 6),

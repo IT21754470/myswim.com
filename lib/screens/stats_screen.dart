@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import '../main.dart';
+//import '../main.dart';
 
-class statsScreen extends StatelessWidget{
-  const statsScreen({super.key});
+class StatsScreen extends StatelessWidget{
+  const StatsScreen({super.key});
 
   @override
   Widget build(BuildContext context){
 
-    return Center(child: Text(
+    return const Center(child: Text(
       'Home Screen',
       style:TextStyle(fontSize:24),
     

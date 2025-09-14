@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print, prefer_const_constructors, deprecated_member_use, unused_import
+
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -10,6 +12,9 @@ import 'settings_screen.dart';
 import 'improvement_prediction_screen.dart';
 import 'add_training_session_screen.dart';
 import 'swimmer_insights_screen.dart';
+import 'swimmer_performance_screen.dart';
+import 'competitions_screen.dart';
+
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
