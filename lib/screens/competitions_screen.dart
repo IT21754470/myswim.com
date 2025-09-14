@@ -139,24 +139,13 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {/* add training data */},
-        icon: const Icon(Icons.pool, color: Colors.white),
-        label: const Text(
-          'Add Training Data',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-        ),
-        backgroundColor: BrandColors.accent1,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
-      ),
+      // ⛔️ Removed the FloatingActionButton as requested
       body: RefreshIndicator(
         color: BrandColors.primary,
         backgroundColor: BrandColors.surface,
         onRefresh: () async => setState(() {}),
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
           children: [
             // 🔁 Performance Snapshot (colorful but light)
             _HeaderStatsCard(
@@ -215,9 +204,9 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
               onTap: _openSwimmerDashboard,
             ),
 
-            // ——— Upcoming Competitions (ONLY next day, no history aggregation)
+            // ——— Upcoming Competition (single soonest future entry)
             const SizedBox(height: 22),
-            const _UpcomingCompetitionsCard(),
+            const _UpcomingCompetitionCard(),
 
             const SizedBox(height: 12),
             const _SimpleInfoCard(
@@ -601,16 +590,16 @@ class _SimpleInfoCard extends StatelessWidget {
 }
 
 /// =====================================
-/// Upcoming Competitions — ONLY next day (no history aggregation)
+/// Upcoming Competition — single nearest future item
 /// =====================================
-class _UpcomingCompetitionsCard extends StatefulWidget {
-  const _UpcomingCompetitionsCard();
+class _UpcomingCompetitionCard extends StatefulWidget {
+  const _UpcomingCompetitionCard();
 
   @override
-  State<_UpcomingCompetitionsCard> createState() => _UpcomingCompetitionsCardState();
+  State<_UpcomingCompetitionCard> createState() => _UpcomingCompetitionCardState();
 }
 
-class _UpcomingCompetitionsCardState extends State<_UpcomingCompetitionsCard> {
+class _UpcomingCompetitionCardState extends State<_UpcomingCompetitionCard> {
   final _store = SwimHistoryStore();
 
   @override
@@ -631,39 +620,38 @@ class _UpcomingCompetitionsCardState extends State<_UpcomingCompetitionsCard> {
 
   DateTime _ymd(DateTime d) => DateTime(d.year, d.month, d.day);
 
-  String _parseLocationFromTitle(String? title) {
-    if (title == null) return '—';
-    final at = title.indexOf('@');
-    if (at >= 0 && at + 1 < title.length) {
-      return title.substring(at + 1).trim();
-    }
-    return '—';
+  int _daysUntil(DateTime target) {
+    final today = _ymd(DateTime.now());
+    final t = _ymd(target);
+    return t.difference(today).inDays;
   }
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final today = _ymd(now);
-    final tomorrow = _ymd(today.add(const Duration(days: 1)));
+    final today = _ymd(DateTime.now());
 
-    // ONLY tomorrow’s competitions (no grouping by competition / no history spans)
-    final tomorrowEntries = _store.items.where((r) {
-      final hasComp = (r.competition?.trim().isNotEmpty ?? false);
-      if (!hasComp) return false;
-      final d = _ymd(r.sessionDate);
-      return DateUtils.isSameDay(d, tomorrow);
-    }).toList()
-      ..sort((a, b) => a.sessionDate.compareTo(b.sessionDate));
+    // Find the soonest future competition (>= today)
+    final futureComps = _store.items
+        .where((r) => (r.competition?.trim().isNotEmpty ?? false) && !_ymd(r.sessionDate).isBefore(today))
+        .toList()
+      ..sort((a, b) => _ymd(a.sessionDate).compareTo(_ymd(b.sessionDate)));
 
-    if (tomorrowEntries.isEmpty) {
+    if (futureComps.isEmpty) {
       return const _SimpleInfoCard(
         icon: Icons.calendar_month,
-        title: "Tomorrow’s Competitions",
-        body: 'No competitions tomorrow. Add a competition to see it here.',
+        title: "Upcoming Competition",
+        body: 'No upcoming competitions found. Add one to see it here.',
       );
     }
 
-    // UI
+    final s = futureComps.first; // the nearest upcoming
+    final startDate = _ymd(s.sessionDate);
+    final endDate = startDate; // no end date in model, show same day
+    final daysUntil = _daysUntil(startDate);
+    final event = '${s.distance} • ${s.stroke}';
+    final startStr = DateFormat('EEE, dd MMM yyyy').format(startDate);
+    final endStr = DateFormat('EEE, dd MMM yyyy').format(endDate);
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -674,96 +662,78 @@ class _UpcomingCompetitionsCardState extends State<_UpcomingCompetitionsCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header with live count
+          // Header
           Row(
             children: [
               const Icon(Icons.calendar_month, color: BrandColors.primary),
               const SizedBox(width: 8),
               const Text(
-                "Tomorrow’s Competitions",
+                "Upcoming Competition",
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: BrandColors.headline),
               ),
               const Spacer(),
-              _CountBadge(count: tomorrowEntries.length),
+              _CountBadge(count: 1),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
 
-          ...tomorrowEntries.take(8).map((s) {
-            final loc = _parseLocationFromTitle(s.competition);
-            final event = '${s.distance} • ${s.stroke}';
-            final dateStr = DateFormat('EEE, dd MMM').format(s.sessionDate);
+          // Body
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: BrandColors.border),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFEFFBFF), Color(0xFFE7F0FF)],
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Name
+                Text(s.competition ?? '—',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                      color: BrandColors.headline,
+                    )),
+                const SizedBox(height: 10),
 
-            return Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: BrandColors.border),
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFFEFFBFF), Color(0xFFE7F0FF)],
+                // Grid of fields
+                Wrap(
+                  runSpacing: 8,
+                  spacing: 16,
+                  children: [
+                    _kv('Days until', daysUntil >= 0 ? '$daysUntil' : '—'),
+                    _kv('Start date', startStr),
+                    _kv('End date', endStr),
+                    _kv('Name', s.competition ?? '—'),
+                    _kv('Competition', event),
+                  ],
                 ),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Left: “Tomorrow” badge
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: BrandColors.accent1.withOpacity(.12),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: BrandColors.accent1.withOpacity(.45)),
-                    ),
-                    child: const Text('Tomorrow',
-                        style: TextStyle(
-                          color: BrandColors.pillText,
-                          fontWeight: FontWeight.w800,
-                        )),
-                  ),
-                  const SizedBox(width: 12),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-                  // Middle: name + event + location
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(s.competition ?? '—',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 15,
-                              color: BrandColors.headline,
-                            )),
-                        const SizedBox(height: 4),
-                        Text(event, style: TextStyle(color: Colors.black.withOpacity(.70))),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Icon(Icons.place_outlined, size: 16, color: Colors.black.withOpacity(.55)),
-                            const SizedBox(width: 4),
-                            Flexible(
-                              child: Text(loc, style: const TextStyle(color: BrandColors.headline)),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Right: date
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      const Text('Date', style: TextStyle(fontSize: 12, color: Colors.black54)),
-                      Text(dateStr, style: const TextStyle(fontWeight: FontWeight.w700)),
-                    ],
-                  ),
-                ],
-              ),
-            );
-          }),
+  Widget _kv(String k, String v) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: BrandColors.surfaceAlt,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: BrandColors.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('$k: ', style: TextStyle(color: Colors.black.withOpacity(.65))),
+          Text(v, style: const TextStyle(fontWeight: FontWeight.w700)),
         ],
       ),
     );

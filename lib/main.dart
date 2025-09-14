@@ -1,13 +1,13 @@
-// lib/main.dart
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'firebase_options.dart';
 import 'models/swim_history_store.dart';
 
 // Screens
 import 'screens/splash_screen.dart';
-import 'screens/swimmer_dashboard_screen.dart';
 import 'widgets/auth_wrapper.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
@@ -25,28 +25,45 @@ import 'screens/settings_screen.dart';
 // New screens
 import 'screens/swimmer_performance_screen.dart';
 import 'screens/predict_best_finishing_time_screen.dart';
+import 'screens/swimmer_dashboard_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ✅ Initialize Firebase first
+  // Init Firebase
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-  } catch (e) {
-    debugPrint("❌ Firebase initialization failed: $e");
+
+    // Optional: anonymous auth for local/dev
+    // Remove for production if you require explicit login.
+    if (FirebaseAuth.instance.currentUser == null) {
+      await FirebaseAuth.instance.signInAnonymously();
+      debugPrint('✅ Signed in anonymously (dev)');
+    }
+  } catch (e, st) {
+    debugPrint('❌ Firebase initialization failed: $e');
+    if (kDebugMode) {
+      FlutterError.reportError(FlutterErrorDetails(
+        exception: e,
+        stack: st,
+        library: 'main.dart',
+        informationCollector: () sync* {
+          yield ErrorDescription('Firebase failed to initialize.');
+        },
+      ));
+    }
   }
 
-  // ✅ Point store to your Render backend, THEN load history
+  // Load local history after Firebase init
   try {
-   // SwimHistoryStore().configureRemote(
-     // baseUrl: 'https://timeprediction-backend.onrender.com',
-    //);
+    // If you add remote sync later, configure BEFORE load():
+    // SwimHistoryStore().configureRemote(baseUrl: 'https://timeprediction-backend.onrender.com');
     await SwimHistoryStore().load();
-    debugPrint("✅ SwimHistoryStore loaded (remote-first).");
+    debugPrint('✅ SwimHistoryStore loaded.');
   } catch (e) {
-    debugPrint("❌ SwimHistoryStore load failed: $e");
+    debugPrint('❌ SwimHistoryStore load failed: $e');
   }
 
   runApp(const MyApp());
@@ -61,11 +78,12 @@ class MyApp extends StatelessWidget {
       title: 'SwimSight',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
+        useMaterial3: false,
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
 
-      // Boot with splash
+      // Boot with Splash (it can decide where to go next)
       home: const SplashScreen(),
 
       routes: {
@@ -89,8 +107,9 @@ class MyApp extends StatelessWidget {
         '/swimmer-dashboard': (context) => const SwimmerDashboardScreen(),
       },
 
+      // Fallback route (keeps the app navigable if a name is wrong)
       onUnknownRoute: (_) => MaterialPageRoute(
-        builder: (_) => const SwimmerPerformanceScreen(userName: 'Kamal'),
+        builder: (_) => const SwimmerPerformanceScreen(),
       ),
     );
   }
