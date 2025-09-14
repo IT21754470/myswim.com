@@ -9,7 +9,7 @@ apply plugin: 'com.google.gms.google-services'
 android {
     namespace "com.SwimSight.app"
     compileSdk 34
-    ndkVersion "27.0.12077973" // Keep your working NDK version
+    ndkVersion "25.1.8937393" // Keep your working NDK version
     
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
