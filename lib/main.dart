@@ -26,6 +26,7 @@ import 'screens/settings_screen.dart';
 import 'screens/swimmer_performance_screen.dart';
 import 'screens/predict_best_finishing_time_screen.dart';
 import 'screens/swimmer_dashboard_screen.dart';
+import 'screens/analysis_results_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

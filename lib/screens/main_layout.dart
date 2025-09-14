@@ -14,6 +14,8 @@ import 'add_training_session_screen.dart';
 import 'swimmer_insights_screen.dart';
 import 'swimmer_performance_screen.dart';
 import 'competitions_screen.dart';
+import 'analysis_results_screen.dart';
+import 'injury_prediction_screen.dart';
 
 
 class MainLayout extends StatefulWidget {
