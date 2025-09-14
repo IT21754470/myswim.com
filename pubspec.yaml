@@ -7,6 +7,7 @@ environment:
   sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
+  
 
 
 
@@ -22,7 +23,7 @@ dependencies:
    
     
   # Use older Firebase versions that work with NDK 25
-  google_sign_in: ^6.1.5
+ 
 
 
   # Firebase & Auth
@@ -35,7 +36,7 @@ dependencies:
   google_sign_in: ^6.1.5
 
   # Networking (⬅️ add this)
-  http: ^1.2.1
+
 
   # Utility
   intl: ^0.19.0

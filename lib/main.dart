@@ -1,6 +1,6 @@
-// lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'firebase_options.dart';
 import 'models/swim_history_store.dart';
@@ -34,17 +34,23 @@ Future<void> main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+
+    // 🔐 (Optional) Ensure there is a user for Firestore reads/writes
+    // Remove this if you always go through your Login/Register screens.
+    if (FirebaseAuth.instance.currentUser == null) {
+      await FirebaseAuth.instance.signInAnonymously();
+      debugPrint("✅ Signed in anonymously for testing");
+    }
   } catch (e) {
     debugPrint("❌ Firebase initialization failed: $e");
   }
 
-  // ✅ Point store to your Render backend, THEN load history
+  // ✅ Load local/remote history after init
   try {
-   // SwimHistoryStore().configureRemote(
-     // baseUrl: 'https://timeprediction-backend.onrender.com',
-    //);
+    // If you have remote sync, configure it BEFORE load():
+    // SwimHistoryStore().configureRemote(baseUrl: 'https://timeprediction-backend.onrender.com');
     await SwimHistoryStore().load();
-    debugPrint("✅ SwimHistoryStore loaded (remote-first).");
+    debugPrint("✅ SwimHistoryStore loaded.");
   } catch (e) {
     debugPrint("❌ SwimHistoryStore load failed: $e");
   }
@@ -75,22 +81,28 @@ class MyApp extends StatelessWidget {
         '/register': (context) => const RegisterScreen(),
         '/forgot-password': (context) => const ForgotPasswordScreen(),
         '/main': (context) => const MainLayout(),
-        '/improvement-prediction': (context) => const ImprovementPredictionScreen(),
+        '/improvement-prediction': (context) =>
+            const ImprovementPredictionScreen(),
         '/add-training': (context) => const AddTrainingSessionScreen(),
         '/competitions': (context) => const CompetitionScreen(),
         '/injury-risk': (context) => const InjuryPredictionScreen(),
-        '/turn-start-analysis': (context) => const TurnStartAnalysisScreen(),
+        '/turn-start-analysis': (context) =>
+            const TurnStartAnalysisScreen(),
         '/profile': (context) => const ProfileScreen(),
         '/settings': (context) => const SettingsScreen(),
 
         // New
-        '/swimmer-performance': (context) => const SwimmerPerformanceScreen(),
-        '/predict-best-finishing-time': (context) => const PredictBestFinishingTimeScreen(),
-        '/swimmer-dashboard': (context) => const SwimmerDashboardScreen(),
+        '/swimmer-performance': (context) =>
+            const SwimmerPerformanceScreen(),
+        '/predict-best-finishing-time': (context) =>
+            const PredictBestFinishingTimeScreen(),
+        '/swimmer-dashboard': (context) =>
+            const SwimmerDashboardScreen(),
       },
 
+      // ✅ Safer fallback (no mismatched constructor args)
       onUnknownRoute: (_) => MaterialPageRoute(
-        builder: (_) => const SwimmerPerformanceScreen(userName: 'Kamal'),
+        builder: (_) => const SwimmerPerformanceScreen(),
       ),
     );
   }

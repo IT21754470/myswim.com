@@ -11,12 +11,14 @@ import 'predict_best_finishing_time_screen.dart' as predict;
 // Pull real data from your in-memory history store
 import '../models/swim_history_store.dart';
 
-/// ===== Brand palette =====
+/// ===== Brand palette (more colorful) =====
 class BrandColors {
-  static const background = Color(0xFFF7FAFC);
+  static const background = Color(0xFFF9FBFF);
   static const primary    = Color(0xFF0E7C86);
-  static const headerStart= Color(0xFF0E7C86);
-  static const headerEnd  = Color(0xFF023047);
+
+  static const headerStart= Color(0xFF06B6D4);
+  static const headerEnd  = Color(0xFF6366F1);
+
   static const headline   = Color(0xFF0F172A);
   static const infoSurface= Color(0xFFE6FFFB);
 
@@ -69,60 +71,6 @@ String _secondsToTimeStr(double seconds) {
   return '${mm.toString().padLeft(2, '0')}:${ss.toStringAsFixed(2).padLeft(5, '0')}';
 }
 
-/// Fallback baselines (seconds) – used only when we have no history for “today”
-const _defaultByDistance = <String, double>{
-  '50m' : 36.0,
-  '100m': 78.0,
-  '200m': 165.0,
-  '400m': 345.0,
-};
-
-/// ===== Prediction model (local fallback only for “Today” when no history) =====
-class PredictionResult {
-  final String timeText;
-  final String confidenceText;
-  PredictionResult(this.timeText, this.confidenceText);
-}
-
-Future<PredictionResult> predictBestTime({
-  required DateTime raceDate,
-  required String distance,
-  required String stroke,
-  double? waterTempC,
-  double? humidityPct,
-  String? bestTimeBaseline,
-}) async {
-  final baseSec = bestTimeBaseline != null && bestTimeBaseline.trim().isNotEmpty
-      ? _timeStrToSeconds(bestTimeBaseline)
-      : (_defaultByDistance[distance] ?? 90.0);
-
-  double pred = baseSec.isNaN ? (_defaultByDistance[distance] ?? 90.0) : baseSec;
-
-  // Future taper (up to ~1.5s over 14 days)
-  final days = DateTime.now().difference(raceDate).inDays; // negative if future
-  if (days < 0) {
-    final ahead = (-days).clamp(0, 14);
-    pred += -0.11 * ahead;
-  }
-
-  // Environment
-  if (waterTempC != null) pred += (waterTempC - 27.0).abs() * 0.12;
-  if (humidityPct != null && humidityPct > 60) pred += (humidityPct - 60) * 0.02;
-
-  // Small stroke nudges
-  if (stroke == 'Breaststroke') pred += 0.25;
-  if (stroke == 'Butterfly') pred += 0.15;
-
-  // Confidence
-  int complete = 0;
-  if (bestTimeBaseline != null && bestTimeBaseline.trim().isNotEmpty) complete++;
-  if (waterTempC != null) complete++;
-  if (humidityPct != null) complete++;
-  final conf = switch (complete) { 3 => '±0.4s', 2 => '±0.6s', 1 => '±0.9s', _ => '±1.2s' };
-
-  return PredictionResult(_secondsToTimeStr(pred), conf);
-}
-
 /// ===== ENTRY WIDGET =====
 class SwimmerPerformanceScreen extends StatefulWidget {
   const SwimmerPerformanceScreen({super.key, this.userName});
@@ -135,8 +83,10 @@ class SwimmerPerformanceScreen extends StatefulWidget {
 class _SwimmerPerformanceScreenState extends State<SwimmerPerformanceScreen> {
   int _index = 1;
 
-  DateTime selectedDate = DateTime.now();           // anchored by prediction
-  String selectedDistance = '100m';                 // valid defaults
+  // NOTE: we still hold a working selection for filtering,
+  // but we do NOT render distance/stroke/confidence on the Today card.
+  DateTime selectedDate = DateTime.now();       // anchored by prediction date you pick
+  String selectedDistance = '100m';             // used for filters/charts
   String selectedStroke   = 'Freestyle';
 
   String? bestTimeBaseline;
@@ -172,7 +122,7 @@ class _SwimmerPerformanceScreenState extends State<SwimmerPerformanceScreen> {
         flexibleSpace: Container(decoration: BoxDecoration(gradient: headerGrad)),
         iconTheme: const IconThemeData(color: Colors.white),
         title: Row(children: [
-          const CircleAvatar(radius: 14, backgroundColor: Colors.white, child: Icon(Icons.person, size: 16, color: BrandColors.headerEnd)),
+          const CircleAvatar(radius: 14, backgroundColor: Colors.white, child: Icon(Icons.person, size: 16, color: Colors.indigo)),
           const SizedBox(width: 8),
           Text(name, style: const TextStyle(color: Colors.white)),
         ]),
@@ -205,12 +155,18 @@ class _SwimmerPerformanceScreenState extends State<SwimmerPerformanceScreen> {
         currentIndex: _index,
         onTap: (i) => setState(() => _index = i),
         backgroundColor: Colors.white,
-        selectedItemColor: BrandColors.primary,
+        selectedItemColor: BrandColors.headerEnd,
         unselectedItemColor: Colors.grey,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: ''),
           BottomNavigationBarItem(icon: Icon(Icons.home), label: ''),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _openPredict,
+        icon: const Icon(Icons.speed),
+        label: const Text('Predict'),
+        backgroundColor: Colors.indigo,
       ),
     );
   }
@@ -249,13 +205,12 @@ class _OverviewTab extends StatefulWidget {
 }
 
 class _OverviewTabState extends State<_OverviewTab> {
-  int _pastEntriesCap = 7; // show last N records from history (not calendar days)
   bool _loading = false;
 
   // Today (anchored)
   DateTime? _todayDate;
-  double? _todayPoint;
-  String? _todayConf;
+  double? _todayPoint;   // null means "no saved prediction for today"
+  // We deliberately do not show confidence/distance/stroke on the today card per request.
 
   // Past & upcoming (history-driven)
   List<double> _pastPoints = const [];
@@ -304,87 +259,56 @@ class _OverviewTabState extends State<_OverviewTab> {
     final history = List<TrainingSession>.from(SwimHistoryStore().items)
       ..sort((a, b) => a.sessionDate.compareTo(b.sessionDate));
 
-    // ===== “Today” (anchored) – prefer history (prediction > training), else fallback model
+    // ===== “Today” (anchored) – ONLY from history predictions. No local fallback.
     _todayDate = startOfAnchor;
     double? todaySec;
-    String? todayConf;
 
     final todays = history.where((s) {
       if (s.distance != widget.distance || s.stroke != widget.stroke) return false;
       final d = _ymd(s.sessionDate);
-      return d == startOfAnchor;
+      return d == startOfAnchor && s.isPrediction;
     }).toList();
 
     if (todays.isNotEmpty) {
-      // Prefer latest prediction for the day, else latest training
       todays.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      final pred = todays.where((s) => s.isPrediction && (s.predictedTime ?? '').trim().isNotEmpty).toList();
-      if (pred.isNotEmpty) {
-        final s = _timeStrToSeconds(pred.first.predictedTime!);
-        if (!s.isNaN && !s.isInfinite) { todaySec = s; todayConf = pred.first.confidence; }
-      } else {
-        final train = todays.where((s) => !s.isPrediction && (s.bestTimeText ?? '').trim().isNotEmpty).toList();
-        if (train.isNotEmpty) {
-          final s = _timeStrToSeconds(train.first.bestTimeText!);
-          if (!s.isNaN && !s.isInfinite) todaySec = s;
-        }
-      }
+      final pred = todays.first.predictedTime ?? '';
+      final s = _timeStrToSeconds(pred);
+      if (!s.isNaN && !s.isInfinite) todaySec = s;
     }
+    _todayPoint = todaySec; // stays null if nothing saved for today
 
-    if (todaySec == null) {
-      // Fallback to model ONLY for today if no history
-      final todayRes = await predictBestTime(
-        raceDate: startOfAnchor,
-        distance: widget.distance,
-        stroke: widget.stroke,
-        waterTempC: widget.envWater,
-        humidityPct: widget.envHumidity,
-        bestTimeBaseline: widget.baseline,
-      );
-      final ts = _timeStrToSeconds(todayRes.timeText);
-      todaySec = (ts.isNaN || ts.isInfinite) ? (_defaultByDistance[widget.distance] ?? 90.0) : ts;
-      todayConf = todayRes.confidenceText;
-    }
-    _todayPoint = todaySec;
-    _todayConf = todayConf;
-
-    // ===== PAST: Build strictly from History (prefer Prediction for a day; else Training). No model fill.
+    // ===== PAST: last 7 calendar days, PREDICTIONS ONLY =====
     final Map<DateTime, _DayBest> pastPerDay = {};
-    for (final s in history) {
-      if (s.distance != widget.distance || s.stroke != widget.stroke) continue;
-      final d = _ymd(s.sessionDate);
-      if (!d.isBefore(startOfAnchor)) continue; // past only
+    final pastStart = startOfAnchor.subtract(const Duration(days: 7)); // [anchor-7, anchor)
 
-      final String raw = s.isPrediction ? (s.predictedTime ?? '') : (s.bestTimeText ?? '');
-      final secs = _timeStrToSeconds(raw);
-      if (secs.isNaN || secs.isInfinite) continue;
-
-      final cur = pastPerDay[d];
-      if (cur == null) {
-        pastPerDay[d] = _DayBest(seconds: secs, isPrediction: s.isPrediction, createdAt: s.createdAt);
-      } else {
-        // Prefer prediction over training; if same type, take latest createdAt
-        final replace = (s.isPrediction && !cur.isPrediction) ||
-            (s.isPrediction == cur.isPrediction && s.createdAt.isAfter(cur.createdAt));
-        if (replace) {
-          pastPerDay[d] = _DayBest(seconds: secs, isPrediction: s.isPrediction, createdAt: s.createdAt);
-        }
-      }
-    }
-    var pastEntries = pastPerDay.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
-    if (pastEntries.length > _pastEntriesCap) {
-      pastEntries = pastEntries.sublist(pastEntries.length - _pastEntriesCap);
-    }
-    final pastDates = pastEntries.map((e) => e.key).toList();
-    final pastPts   = pastEntries.map((e) => e.value.seconds).toList();
-
-    // ===== UPCOMING: Use only History predictions (latest per future day). No model fill.
-    final Map<DateTime, _DayBest> futurePerDay = {};
     for (final s in history) {
       if (!s.isPrediction) continue;
       if (s.distance != widget.distance || s.stroke != widget.stroke) continue;
       final d = _ymd(s.sessionDate);
-      if (!d.isAfter(startOfAnchor)) continue; // future only
+      if (d.isBefore(pastStart) || !d.isBefore(startOfAnchor)) continue;
+
+      final secs = _timeStrToSeconds(s.predictedTime ?? '');
+      if (secs.isNaN || secs.isInfinite) continue;
+
+      final cur = pastPerDay[d];
+      if (cur == null || s.createdAt.isAfter(cur.createdAt)) {
+        pastPerDay[d] = _DayBest(seconds: secs, isPrediction: true, createdAt: s.createdAt);
+      }
+    }
+    final pastEntries = pastPerDay.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
+    final pastDates = pastEntries.map((e) => e.key).toList();
+    final pastPts   = pastEntries.map((e) => e.value.seconds).toList();
+
+    // ===== UPCOMING: next 14 calendar days, PREDICTIONS ONLY =====
+    final Map<DateTime, _DayBest> futurePerDay = {};
+    final futureEnd = startOfAnchor.add(const Duration(days: 14)); // (anchor, anchor+14]
+
+    for (final s in history) {
+      if (!s.isPrediction) continue;
+      if (s.distance != widget.distance || s.stroke != widget.stroke) continue;
+      final d = _ymd(s.sessionDate);
+      if (!d.isAfter(startOfAnchor) || d.isAfter(futureEnd)) continue;
+
       final secs = _timeStrToSeconds(s.predictedTime ?? '');
       if (secs.isNaN || secs.isInfinite) continue;
 
@@ -393,10 +317,7 @@ class _OverviewTabState extends State<_OverviewTab> {
         futurePerDay[d] = _DayBest(seconds: secs, isPrediction: true, createdAt: s.createdAt);
       }
     }
-    var futureEntries = futurePerDay.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
-    if (futureEntries.length > 7) {
-      futureEntries = futureEntries.sublist(0, 7); // next 7 prediction dates
-    }
+    final futureEntries = futurePerDay.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
     final upcomingDates = futureEntries.map((e) => e.key).toList();
     final futurePts     = futureEntries.map((e) => e.value.seconds).toList();
 
@@ -410,21 +331,20 @@ class _OverviewTabState extends State<_OverviewTab> {
     });
   }
 
-  String _chartDateLabel(DateTime d) => DateFormat('yyyy-MM-dd').format(d); // show actual dates on x-axis
+  String _chartDateLabel(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
   String _listDateLabel(DateTime d)  => DateFormat('EEE, dd MMM').format(d);
 
   @override
   Widget build(BuildContext context) {
     final accent = BrandTheme.accentFor(widget.distance, widget.stroke);
 
-    // quick stats
     final pastStats = _Stats.fromPoints(_pastPoints);
     final upcStats  = _Stats.fromPoints(_upcomingPoints);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
-        // selectors
+        // selectors (kept; influence charts/filters only)
         Row(
           children: [
             Expanded(
@@ -449,37 +369,27 @@ class _OverviewTabState extends State<_OverviewTab> {
 
         const SizedBox(height: 16),
 
-        // ===== Today’s performance (history-preferred, else model) =====
+        // ===== Today’s performance (HISTORY ONLY; no local model) =====
         _loading
             ? const _TodaySkeleton()
-            : TodayPerformanceCard(
-                date: _todayDate ?? DateTime.now(),
-                timeText: _secondsToTimeStr(_todayPoint ?? (_defaultByDistance[widget.distance] ?? 90.0)),
-                distance: widget.distance,
-                stroke: widget.stroke,
-                confidence: _todayConf,
-                colors: accent,
-              ),
+            : (_todayPoint == null)
+                ? _EmptyTodayCard(
+                    date: _todayDate ?? DateTime.now(),
+                    colors: accent,
+                    onTapPredict: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const predict.PredictBestFinishingTimeScreen()),
+                    ),
+                  )
+                : TodayPerformanceCard(
+                    date: _todayDate ?? DateTime.now(),
+                    timeText: _secondsToTimeStr(_todayPoint!),
+                    colors: accent,
+                  ),
 
         const SizedBox(height: 16),
 
-        // ===== Past performance (purely from History) =====
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text('Past performance', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
-            ToggleButtons(
-              isSelected: [_pastEntriesCap == 7, _pastEntriesCap == 14],
-              onPressed: (i) => setState(() => _pastEntriesCap = (i == 0 ? 7 : 14)),
-              borderRadius: BorderRadius.circular(10),
-              constraints: const BoxConstraints(minWidth: 44, minHeight: 28),
-              children: const [
-                Padding(padding: EdgeInsets.symmetric(horizontal: 8), child: Text('7')),
-                Padding(padding: EdgeInsets.symmetric(horizontal: 8), child: Text('14')),
-              ],
-            ),
-          ],
-        ),
+        // ===== Past 7 days (predictions only) =====
+        _SectionHeader(text: 'Past 7 days (predictions)', colors: accent),
         const SizedBox(height: 8),
 
         _loading
@@ -487,7 +397,7 @@ class _OverviewTabState extends State<_OverviewTab> {
             : PerformanceChartCard(
                 dates: _pastDates,
                 points: _pastPoints,
-                labelForDay: _chartDateLabel, // 👈 actual dates, not Sun/Mon
+                labelForDay: _chartDateLabel,
                 colors: accent,
                 avgSeconds: pastStats.avg,
                 highlightIndex: pastStats.minIndex,
@@ -495,13 +405,13 @@ class _OverviewTabState extends State<_OverviewTab> {
               ),
         if (!_loading) ...[
           const SizedBox(height: 8),
-          _AnalysisBar(stats: pastStats, title: 'Last ${_pastDates.length} entries', accent: accent),
+          _AnalysisBar(stats: pastStats, title: 'Last ${_pastDates.length} predicted days', accent: accent),
         ],
 
         const SizedBox(height: 20),
 
-        // ===== Upcoming predictions (purely from History predictions) =====
-        const Text('Upcoming (from saved predictions)', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+        // ===== Upcoming 14 days (predictions only) =====
+        _SectionHeader(text: 'Upcoming 14 days (saved predictions)', colors: accent),
         const SizedBox(height: 8),
 
         _loading
@@ -509,7 +419,7 @@ class _OverviewTabState extends State<_OverviewTab> {
             : PerformanceChartCard(
                 dates: _upcomingDates,
                 points: _upcomingPoints,
-                labelForDay: _chartDateLabel, // 👈 actual dates
+                labelForDay: _chartDateLabel,
                 colors: accent,
                 avgSeconds: upcStats.avg,
                 highlightIndex: upcStats.minIndex,
@@ -517,7 +427,7 @@ class _OverviewTabState extends State<_OverviewTab> {
               ),
         if (!_loading) ...[
           const SizedBox(height: 8),
-          _AnalysisBar(stats: upcStats, title: 'Next ${_upcomingDates.length} saved', accent: accent, isFuture: true),
+          _AnalysisBar(stats: upcStats, title: 'Next ${_upcomingDates.length} predicted days', accent: accent, isFuture: true),
         ],
 
         // LISTS
@@ -527,7 +437,7 @@ class _OverviewTabState extends State<_OverviewTab> {
             dates: _pastDates,
             points: _pastPoints,
             dateLabelFor: _listDateLabel,
-            timeHeader: 'Time (from History)',
+            timeHeader: 'Predicted time',
             colors: accent,
           ),
         const SizedBox(height: 12),
@@ -589,23 +499,17 @@ class _Stats {
   }
 }
 
-/// ===== Today Performance Card =====
+/// ===== Today Performance Card (no distance/stroke/confidence chips) =====
 class TodayPerformanceCard extends StatelessWidget {
   final DateTime date;
   final String timeText;
-  final String distance;
-  final String stroke;
-  final String? confidence;
   final List<Color> colors;
 
   const TodayPerformanceCard({
     super.key,
     required this.date,
     required this.timeText,
-    required this.distance,
-    required this.stroke,
     required this.colors,
-    this.confidence,
   });
 
   @override
@@ -614,27 +518,72 @@ class TodayPerformanceCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [colors.first.withOpacity(0.15), colors.last.withOpacity(0.15)]),
+        gradient: LinearGradient(colors: [colors.first.withOpacity(0.18), colors.last.withOpacity(0.14)]),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: colors.last.withOpacity(0.35)),
+        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 6))],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          const Text('Today’s performance', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 6),
-          Text(timeText, style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: colors.last)),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 8,
-            runSpacing: -6,
-            children: [
-              Chip(backgroundColor: colors.first.withOpacity(0.1), label: Text(dateStr)),
-              Chip(backgroundColor: colors.first.withOpacity(0.1), label: Text('Distance: $distance')),
-              Chip(backgroundColor: colors.first.withOpacity(0.1), label: Text('Stroke: $stroke')),
-              if (confidence != null) Chip(backgroundColor: colors.first.withOpacity(0.1), label: Text('Confidence: $confidence')),
-            ],
+          Container(
+            width: 8, height: 60,
+            decoration: BoxDecoration(gradient: LinearGradient(colors: colors), borderRadius: BorderRadius.circular(8)),
           ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Today’s performance', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                Text(timeText, style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: colors.last)),
+                const SizedBox(height: 4),
+                Text(dateStr, style: const TextStyle(color: Colors.black54)),
+              ],
+            ),
+          ),
+          const Icon(Icons.bolt_rounded, color: Colors.amber),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyTodayCard extends StatelessWidget {
+  final DateTime date;
+  final List<Color> colors;
+  final VoidCallback onTapPredict;
+  const _EmptyTodayCard({required this.date, required this.colors, required this.onTapPredict});
+
+  @override
+  Widget build(BuildContext context) {
+    final dateStr = DateFormat('EEE, dd MMM').format(date);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [colors.first.withOpacity(0.12), colors.last.withOpacity(0.10)]),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.last.withOpacity(0.30)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline, color: Colors.black54),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text('No prediction saved for $dateStr.\nTap “Predict” to add one.',
+                style: const TextStyle(color: Colors.black87)),
+          ),
+          const SizedBox(width: 10),
+          ElevatedButton.icon(
+            onPressed: onTapPredict,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: colors.last,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            icon: const Icon(Icons.speed),
+            label: const Text('Predict'),
+          )
         ],
       ),
     );
@@ -654,6 +603,30 @@ class _TodaySkeleton extends StatelessWidget {
       ),
       alignment: Alignment.center,
       child: const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)),
+    );
+  }
+}
+
+/// ===== Small colorful section header =====
+class _SectionHeader extends StatelessWidget {
+  final String text;
+  final List<Color> colors;
+  const _SectionHeader({required this.text, required this.colors});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [colors.first.withOpacity(0.16), colors.last.withOpacity(0.16)]),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.timeline, color: colors.last),
+          const SizedBox(width: 8),
+          Text(text, style: TextStyle(fontWeight: FontWeight.w800, color: colors.last)),
+        ],
+      ),
     );
   }
 }
@@ -712,7 +685,7 @@ class PerformanceChartCard extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: List.generate(n, (i) => Text(labelForDay(dates[i]))),
+            children: List.generate(n, (i) => Text(labelForDay(dates[i]), style: const TextStyle(fontSize: 11))),
           ),
         ],
       ),
@@ -820,7 +793,7 @@ class _SimpleChartPainter extends CustomPainter {
             text: overlayLabel!,
             style: TextStyle(color: endColor.withOpacity(0.7), fontSize: 10),
           ),
-//textDirection: TextDirection.LTR, // ✅ required
+        //textDirection: TextDirection.ltr, // ✅ keep to avoid null textDirection issues
         )..layout();
         tp.paint(canvas, Offset(pad + w - tp.width, y - tp.height - 2));
       }
@@ -904,12 +877,7 @@ class _AnalysisBar extends StatelessWidget {
                 if (stats.max != null) Chip(label: Text('Slowest: ${_secondsToTimeStr(stats.max!)}')),
                 Chip(
                   avatar: Icon(arrow, size: 16, color: arrowColor),
-                  label: Text(
-                    isFuture
-                        ? 'Trend: ${trend.toStringAsFixed(2)}s/day'
-                        : 'Trend: ${trend.toStringAsFixed(2)}s/day',
-                    style: TextStyle(color: arrowColor),
-                  ),
+                  label: Text('Trend: ${trend.toStringAsFixed(2)}s/day', style: TextStyle(color: arrowColor)),
                   backgroundColor: arrowColor.withOpacity(.10),
                   side: BorderSide(color: arrowColor.withOpacity(.35)),
                 ),

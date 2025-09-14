@@ -6,6 +6,19 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/swim_history_store.dart';
 
+/// ===== Tunable thresholds (team-specific) =====
+/// The accuracy "ratio" is bandSec / predictedTime.
+/// Lower ratio => higher confidence.
+///
+/// Example defaults:
+///   High      : 0.0  .. 0.006  (<= 0.6%)
+///   Med-High  : 0.006.. 0.009  (<= 0.9%)
+///   Medium    : 0.009.. 0.013  (<= 1.3%)
+///   Low       : > 0.013
+const double kAccHighMaxRatio     = 0.006;
+const double kAccMedHighMaxRatio  = 0.009;
+const double kAccMediumMaxRatio   = 0.013;
+
 /// ===== Colors & accents by distance =====
 class BrandColors {
   static const headline = Color(0xFF0F172A);
@@ -137,16 +150,19 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
     }
   }
 
-  /// === Dynamic accuracy band derived from predicted time ===
+  /// === Dynamic accuracy band derived from predicted time (prediction-aware, no hardcoded seconds) ===
   ({double bandSec, double ratio}) _bandForSession(TrainingSession s) {
     final pred = _timeToSeconds(s.predictedTime);
     if (pred.isNaN || pred <= 0) return (bandSec: double.nan, ratio: double.nan);
 
+    // Base relative uncertainty by event length (tighter for sprints, looser for long events)
     final double baseFactor =
-        (pred <= 45) ? 0.006 :
-        (pred <= 90) ? 0.007 :
-        (pred <= 180) ? 0.008 : 0.009;
+        (pred <= 45)  ? 0.006 :   // ~0.6% for sub-45s (e.g., 50m)
+        (pred <= 90)  ? 0.007 :   // ~0.7% for 45–90s (e.g., 100m)
+        (pred <= 180) ? 0.008 :   // ~0.8% for 90–180s (e.g., 200m)
+                         0.009;   // ~0.9% for >180s (e.g., 400m)
 
+    // Data quality penalties (same as before)
     final hasBaseline = !_timeToSeconds(s.bestTimeText).isNaN;
     final hasWater    = s.waterTemp != null;
     final hasHumid    = s.humidity  != null;
@@ -156,35 +172,44 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
     if (!hasWater)    penalty *= 1.10;
     if (!hasHumid)    penalty *= 1.10;
 
+    // Raw band from model
     double band = pred * baseFactor * penalty;
-    band = band.clamp(0.12, double.infinity);
+
+    // --- Dynamic floor & cap (scale with predicted time) ---
+    // Floor: avoid unrealistically tiny bands; Cap: avoid runaway bands.
+    // Ratios ensure both scale naturally with pred.
+    final double floorRatio =
+        (pred <= 45)  ? 0.0035 :   // 0.35% for sprints
+        (pred <= 90)  ? 0.0040 :
+        (pred <= 180) ? 0.0050 :
+                        0.0060;    // 0.6% for long events
+
+    const double capRatio = 0.02;  // 2% global cap to keep UI tidy
+
+    final double minBand = pred * floorRatio;
+    final double maxBand = pred * capRatio;
+
+    band = band.clamp(minBand, maxBand);
 
     return (bandSec: band, ratio: band / pred);
   }
 
   ({String label, Color color}) _accuracyFromRatio(double ratio) {
     if (ratio.isNaN) return (label: 'Unknown', color: Colors.grey);
-    if (ratio <= 0.006) return (label: 'High',      color: const Color(0xFF16A34A));
-    if (ratio <= 0.009) return (label: 'Med-High',  color: const Color(0xFF22C55E));
-    if (ratio <= 0.013) return (label: 'Medium',    color: const Color(0xFFF59E0B));
+    if (ratio <= kAccHighMaxRatio)    return (label: 'High',     color: const Color(0xFF16A34A));
+    if (ratio <= kAccMedHighMaxRatio) return (label: 'Med-High', color: const Color(0xFF22C55E));
+    if (ratio <= kAccMediumMaxRatio)  return (label: 'Medium',   color: const Color(0xFFF59E0B));
     return (label: 'Low', color: const Color(0xFFEF4444));
   }
 
   String _displayNameFor(TrainingSession s) {
-    final id = s.swimmerId?.trim();
-    final name = s.swimmerName?.trim();
-    if ((name?.isNotEmpty ?? false) && (id?.isNotEmpty ?? false)) return '$name (#$id)';
-    if (name?.isNotEmpty ?? false) return name!;
-    if (id?.isNotEmpty ?? false) return 'ID ${id!}';
-    return 'Unassigned';
+    // De-identified label: never show swimmer name or ID
+    return 'Swimmer';
   }
 
   String _initials(String? text) {
-    final s = (text ?? '').trim();
-    if (s.isEmpty) return '—';
-    final parts = s.split(RegExp(r'\s+'));
-    if (parts.length == 1) return parts.first.characters.take(2).toString().toUpperCase();
-    return (parts[0].characters.first + parts[1].characters.first).toUpperCase();
+    // Not used in UI anymore; kept for safety if referenced elsewhere.
+    return '—';
   }
 
   String _fmtBand(double bandSec) {
@@ -256,7 +281,7 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
     final Map<String, _Agg> aggBySwimmer = {};
     for (final p in todayPreds) {
       final key = '${p.swimmerId ?? ""}|${p.swimmerName ?? ""}';
-      final dispName = _displayNameFor(p);
+      final dispName = _displayNameFor(p); // "Swimmer"
       final (bandSec: band, ratio: ratio) = _bandForSession(p);
 
       aggBySwimmer.putIfAbsent(key, () => _Agg(name: dispName));
@@ -382,19 +407,6 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
 
     final status = _progressStatus(delta);
 
-    // Fallback identity from a matching non-prediction session
-    TrainingSession? fallback;
-    for (final t in _store.items) {
-      if (!t.isPrediction &&
-          DateUtils.isSameDay(t.sessionDate, s.sessionDate) &&
-          t.distance == s.distance &&
-          t.stroke == s.stroke) {
-        fallback = t; break;
-      }
-    }
-    final displaySwimmerId   = s.swimmerId   ?? fallback?.swimmerId;
-    final displaySwimmerName = s.swimmerName ?? fallback?.swimmerName;
-
     final (bandSec: band, ratio: ratio) = _bandForSession(s);
     final acc   = _accuracyFromRatio(ratio);
     final accStr = '${acc.label} · ${_fmtBand(band)}';
@@ -405,8 +417,6 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
       status: status,
       delta: delta,
       pct: pct,
-      displaySwimmerId: displaySwimmerId,
-      displaySwimmerName: displaySwimmerName,
       timeLeftText: _timeLeftText(s.sessionDate),
       accuracyLabel: accStr,
       accuracyColor: acc.color,
@@ -509,6 +519,7 @@ class _TodayOverviewHeaderQuality extends StatelessWidget {
     // Map typical ratios (0.004..0.02+) to 0..1
     final clamped = r.clamp(0.004, 0.02);
     return ((clamped - 0.004) / (0.02 - 0.004)).toDouble();
+    // If you customize thresholds heavily, you can map using your constants instead.
   }
 
   @override
@@ -738,28 +749,29 @@ class _TodayGrid extends StatelessWidget {
                   CircleAvatar(
                     radius: 20,
                     backgroundColor: acc.color.withOpacity(.12),
-                    child: Text(_initials(a.name), style: TextStyle(color: acc.color, fontWeight: FontWeight.w800)),
+                    child: Icon(Icons.person, color: acc.color, size: 18),
                   ),
                   const SizedBox(width: 10),
-                  Expanded(
+                  const Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(a.name,
+                        Text('Swimmer',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 4),
-                        Text('$bandText · ${acc.label}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(color: acc.color, fontWeight: FontWeight.w600)),
+                            style: TextStyle(fontWeight: FontWeight.w800)),
                       ],
                     ),
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
+              // Accuracy row
+              Text('$bandText · ${acc.label}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: acc.color, fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
               // Event tags (distance + stroke)
               Wrap(
@@ -787,14 +799,6 @@ class _TodayGrid extends StatelessWidget {
       ),
       child: Text(text, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
     );
-  }
-
-  String _initials(String? text) {
-    final s = (text ?? '').trim();
-    if (s.isEmpty) return '—';
-    final parts = s.split(RegExp(r'\s+'));
-    if (parts.length == 1) return parts.first.characters.take(2).toString().toUpperCase();
-    return (parts[0].characters.first + parts[1].characters.first).toUpperCase();
   }
 }
 
@@ -888,8 +892,6 @@ class _UpcomingCard extends StatelessWidget {
   final _Status status;
   final double delta; // predicted - best (seconds)
   final double pct;   // % vs baseline
-  final String? displaySwimmerId;
-  final String? displaySwimmerName;
   final String timeLeftText;
   final String accuracyLabel;       // "High · ±0.42s"
   final Color accuracyColor;
@@ -903,8 +905,6 @@ class _UpcomingCard extends StatelessWidget {
     required this.timeLeftText,
     required this.accuracyLabel,
     required this.accuracyColor,
-    this.displaySwimmerId,
-    this.displaySwimmerName,
     super.key,
   });
 
@@ -923,8 +923,6 @@ class _UpcomingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dateStr = DateFormat('EEE, dd MMM').format(s.sessionDate);
-    final id   = (displaySwimmerId  ?? s.swimmerId)   ?? '—';
-    final name = (displaySwimmerName ?? s.swimmerName) ?? '—';
 
     return Container(
       decoration: BoxDecoration(
@@ -976,7 +974,7 @@ class _UpcomingCard extends StatelessWidget {
 
                 const SizedBox(height: 10),
 
-                // Details row
+                // Details row (de-identified: no swimmer fields)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                   decoration: BoxDecoration(
@@ -986,15 +984,13 @@ class _UpcomingCard extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      _kv('Swimmer ID', id, flex: 2),
-                      _kv('Swimmer Name', name, flex: 3),
                       Expanded(
-                        flex: 3,
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            const Text('Prediction', style: TextStyle(fontSize: 11, color: Colors.black54)),
+                            const SizedBox(height: 2),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
                               children: [
                                 Icon(status.icon, color: status.color, size: 20),
                                 const SizedBox(width: 6),
@@ -1004,9 +1000,18 @@ class _UpcomingCard extends StatelessWidget {
                                 ),
                               ],
                             ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            const Text('Δ vs baseline', style: TextStyle(fontSize: 11, color: Colors.black54)),
                             const SizedBox(height: 2),
                             Text(
-                              'Δ ${_deltaText()}${_pctText()}',
+                              '${_deltaText()}${_pctText()}',
                               style: TextStyle(
                                 color: status.color.withOpacity(.9),
                                 fontSize: 12,
@@ -1073,20 +1078,6 @@ class _UpcomingCard extends StatelessWidget {
         labelStyle: TextStyle(color: c),
         side: BorderSide(color: c.withOpacity(.25)),
       );
-
-  Widget _kv(String k, String v, {int flex = 1}) {
-    return Expanded(
-      flex: flex,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(k, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-          const SizedBox(height: 2),
-          Text(v, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
-        ],
-      ),
-    );
-  }
 }
 
 class _Status {
