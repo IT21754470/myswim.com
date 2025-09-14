@@ -485,10 +485,12 @@ Widget _buildFeatureCard({
 }) {
   final bool isEnabled = sessionCount > 0 ||
         title == 'Swimmer Insights' ||
-        title == 'Kick Analysis';
+        title == 'Kick Analysis' ||
+        title == 'Injury Risk Prediction';
   final bool showRequirement = !isEnabled && title != 'Swimmer Insights';
 
   return GestureDetector(
+    behavior: HitTestBehavior.opaque,
     onTap: isEnabled ? onTap : null,
     child: Container(
       padding: const EdgeInsets.all(16), // ✅ Reduced from 20 to 16

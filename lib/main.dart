@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:swimming_app/screens/settings_screen.dart';
 
 import 'firebase_options.dart';
 import 'models/swim_history_store.dart';
@@ -106,6 +107,7 @@ class MyApp extends StatelessWidget {
         '/swimmer-performance': (context) => const SwimmerPerformanceScreen(),
         '/predict-best-finishing-time': (context) => const PredictBestFinishingTimeScreen(),
         '/swimmer-dashboard': (context) => const SwimmerDashboardScreen(),
+        '/analysis-results': (context) => const AnalysisResultsScreen(),
       },
 
       // Fallback route (keeps the app navigable if a name is wrong)
