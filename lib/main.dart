@@ -22,6 +22,7 @@ import 'screens/injury_prediction_screen.dart';
 import 'screens/turn_start_analysis_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/TrainingSessionsScreen.dart';
 
 // New screens
 import 'screens/swimmer_performance_screen.dart';
@@ -102,6 +103,7 @@ class MyApp extends StatelessWidget {
         '/turn-start-analysis': (context) => const TurnStartAnalysisScreen(),
         '/profile': (context) => const ProfileScreen(),
         '/settings': (context) => const SettingsScreen(),
+        '/training-sessions': (context) => const TrainingSessionsScreen(),
 
         // New
         '/swimmer-performance': (context) => const SwimmerPerformanceScreen(),
