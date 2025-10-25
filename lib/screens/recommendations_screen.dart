@@ -45,29 +45,62 @@ class _RecommendationsScreenState extends State<RecommendationsScreen> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.grey[50],
-      appBar: AppBar(
-        title: const Text('Test Recommendations'),
-        backgroundColor: const Color(0xFF4A90E2),
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            onPressed: _loadRecommendations,
-            icon: const Icon(Icons.refresh),
+Widget build(BuildContext context) {
+  return Scaffold(
+    backgroundColor: Colors.grey[50],
+    appBar: AppBar(
+      title: const Text('Recommendations'),
+      backgroundColor: const Color(0xFF4A90E2),
+      foregroundColor: Colors.white,
+      actions: [
+        // ✅ Show API status
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: _service.isOfflineMode 
+                    ? Colors.orange.withOpacity(0.2) 
+                    : Colors.green.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _service.isOfflineMode ? Icons.offline_bolt : Icons.cloud_done,
+                    size: 16,
+                    color: _service.isOfflineMode ? Colors.orange : Colors.green,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _service.isOfflineMode ? 'Local' : 'AI',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: _service.isOfflineMode ? Colors.orange : Colors.green,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ],
-      ),
-      body: _buildBody(),
-    );
-  }
-
+        ),
+        IconButton(
+          onPressed: _loadRecommendations,
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
+    ),
+    body: _buildBody(),
+  );
+}
   Widget _buildBody() {
     if (_isLoading) {
       return const Center(
         child: Column(
+   
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             CircularProgressIndicator(),
@@ -105,22 +138,44 @@ class _RecommendationsScreenState extends State<RecommendationsScreen> {
     return Column(
       children: [
         // Summary
-        Container(
-          margin: const EdgeInsets.all(16),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: const Color(0xFF4A90E2),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildSummaryItem('Total', '${_recommendations.length}', Icons.star),
-              _buildSummaryItem('Mode', 'Local', Icons.offline_bolt),
-              _buildSummaryItem('Status', 'Ready', Icons.check_circle),
-            ],
-          ),
-        ),
+      Container(
+  margin: const EdgeInsets.all(16),
+  padding: const EdgeInsets.all(16),
+  decoration: BoxDecoration(
+    gradient: LinearGradient(
+      colors: [const Color(0xFF4A90E2), const Color(0xFF357ABD)],
+    ),
+    borderRadius: BorderRadius.circular(12),
+    boxShadow: [
+      BoxShadow(
+        color: Colors.black.withOpacity(0.1),
+        blurRadius: 8,
+        offset: const Offset(0, 2),
+      ),
+    ],
+  ),
+  child: Row(
+    mainAxisAlignment: MainAxisAlignment.spaceAround,
+    children: [
+      _buildSummaryItem(
+        'Total', 
+        '${_recommendations.length}', 
+        Icons.star
+      ),
+      _buildSummaryItem(
+        'Mode', 
+        _service.isOfflineMode ? 'Local' : 'AI+Local',
+        _service.isOfflineMode ? Icons.offline_bolt : Icons.psychology,
+      ),
+      _buildSummaryItem(
+        'Quality', 
+        _recommendations.isEmpty ? 'N/A' : 
+            '${(_recommendations.map((r) => r.confidence).reduce((a, b) => a + b) / _recommendations.length).round()}%',
+        Icons.verified,
+      ),
+    ],
+  ),
+),
         
         // Recommendations List
         Expanded(

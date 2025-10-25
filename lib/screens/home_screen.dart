@@ -7,10 +7,13 @@ import 'competitions_screen.dart';
 import 'turn_start_analysis_screen.dart';
 import 'injury_prediction_screen.dart';
 import 'add_training_session_screen.dart';
+import 'personal_records_screen.dart'; // ✅ ADD THIS
 import '../services/profile_service.dart';
+import '../services/personal_records_service.dart'; // ✅ ADD THIS
 import '../models/user_profile.dart';
 import 'package:swimming_app/screens/kick_analysis.dart';
-
+import 'TrainingSessionsScreen.dart';
+import '../services/personal_bests_service.dart'; 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -186,7 +189,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
               // Quick Stats
               _buildQuickStats(),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
+              
+              // ✅ PERSONAL RECORDS SUMMARY CARD
+              if (sessionCount > 0) _buildPersonalRecordsSummary(),
+              if (sessionCount > 0) const SizedBox(height: 24),
               
               // Main Feature Cards Section
               Row(
@@ -232,14 +239,14 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 16),
               
               // Feature Cards Grid
-             GridView.count(
-  shrinkWrap: true,
-  physics: const NeverScrollableScrollPhysics(),
-  crossAxisCount: 2,
-  mainAxisSpacing: 16,
-  crossAxisSpacing: 16,
-  childAspectRatio: 0.85, // ✅ Changed from 1.0 to 0.85 to give more height
-  children: [
+              GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 2,
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 16,
+                childAspectRatio: 0.85,
+                children: [
                   _buildFeatureCard(
                     title: 'Swimmer Insights',
                     description: 'AI-powered performance analysis',
@@ -350,6 +357,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       }
                     },
                   ),
+                  
+              
                 ],
               ),
 
@@ -393,199 +402,235 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildQuickStats() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildStatCard(
-            'Sessions',
-            isLoadingStats ? '...' : sessionCount.toString(),
-            Icons.pool,
-            const Color(0xFF2A5298),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildStatCard(
-            'Distance',
-            isLoadingStats ? '...' : '${totalDistance.toStringAsFixed(1)}km',
-            Icons.straighten,
-            const Color(0xFF764ba2),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _buildStatCard(
-            'Hours',
-            isLoadingStats ? '...' : '${totalHours}h',
-            Icons.timer,
-            const Color(0xFF667eea),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
+  Widget _buildPersonalRecordsSummary() {
+  return FutureBuilder<int>(
+    future: PersonalBestsService.getTotalBestsCount(), // UPDATED
+    builder: (context, snapshot) {
+      final recordCount = snapshot.data ?? 0;
+      
+      return GestureDetector(
+        onTap: () async {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const PersonalRecordsScreen(),
             ),
-            child: Icon(
-              icon,
-              color: color,
-              size: 20,
+          );
+          if (result == true) {
+            _refreshStats();
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[600],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-Widget _buildFeatureCard({
-  required String title,
-  required String description,
-  required IconData icon,
-  required Gradient gradient,
-  required VoidCallback onTap,
-  required int sessionCount,
-}) {
-  final bool isEnabled = sessionCount > 0 ||
-        title == 'Swimmer Insights' ||
-        title == 'Kick Analysis' ||
-        title == 'Injury Risk Prediction';
-  final bool showRequirement = !isEnabled && title != 'Swimmer Insights';
-
-  return GestureDetector(
-    behavior: HitTestBehavior.opaque,
-    onTap: isEnabled ? onTap : null,
-    child: Container(
-      padding: const EdgeInsets.all(16), // ✅ Reduced from 20 to 16
-      decoration: BoxDecoration(
-        gradient: isEnabled ? gradient : LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.grey.withOpacity(0.3),
-            Colors.grey.withOpacity(0.1),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(isEnabled ? 0.1 : 0.05),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header row with icon and requirement badge
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10), // ✅ Reduced from 12 to 10
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(isEnabled ? 0.2 : 0.1),
-                  borderRadius: BorderRadius.circular(10), // ✅ Reduced from 12 to 10
-                ),
-                child: Icon(
-                  icon,
-                  color: isEnabled ? Colors.white : Colors.grey,
-                  size: 22, // ✅ Reduced from 24 to 22
-                ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.orange.withOpacity(0.3),
+                blurRadius: 15,
+                offset: const Offset(0, 5),
               ),
-              if (showRequirement)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    'Need data',
-                    style: TextStyle(
-                      color: Colors.orange[700],
-                      fontSize: 8,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
             ],
           ),
-          
-          const SizedBox(height: 8), // ✅ Reduced spacing
-          
-          // Title
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 14, // ✅ Reduced from 16 to 14
-              fontWeight: FontWeight.bold,
-              color: isEnabled ? Colors.white : Colors.grey[600],
-            ),
-            maxLines: 2, // ✅ Add maxLines
-            overflow: TextOverflow.ellipsis, // ✅ Add overflow handling
-          ),
-          
-          const SizedBox(height: 4), // ✅ Reduced spacing
-          
-          // Description
-          Expanded( // ✅ Wrap in Expanded to take remaining space
-            child: Text(
-              showRequirement ? 'Add training sessions first' : description,
-              style: TextStyle(
-                fontSize: 11, // ✅ Reduced from 12 to 11
-                color: isEnabled 
-                    ? Colors.white.withOpacity(0.9) 
-                    : Colors.grey[500],
-                height: 1.2, // ✅ Reduce line height
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.emoji_events,
+                  size: 36,
+                  color: Colors.white,
+                ),
               ),
-              maxLines: 3, // ✅ Limit to 3 lines
-              overflow: TextOverflow.ellipsis, // ✅ Handle overflow
-            ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Personal Records',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      recordCount == 0
+                          ? 'Set your first PR today!'
+                          : '$recordCount PR${recordCount != 1 ? 's' : ''} achieved',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
+                    if (recordCount > 0) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(
+                              Icons.trending_up,
+                              color: Colors.white,
+                              size: 14,
+                            ),
+                            SizedBox(width: 4),
+                            Text(
+                              'View All',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right,
+                color: Colors.white,
+                size: 28,
+              ),
+            ],
           ),
-        ],
-      ),
-    ),
+        ),
+      );
+    },
   );
 }
+
+  Widget _buildFeatureCard({
+    required String title,
+    required String description,
+    required IconData icon,
+    required Gradient gradient,
+    required VoidCallback onTap,
+    required int sessionCount,
+  }) {
+    final bool isEnabled = sessionCount > 0 ||
+          title == 'Swimmer Insights' ||
+          title == 'Kick Analysis' ||
+          title == 'Injury Risk Prediction';
+    final bool showRequirement = !isEnabled && title != 'Swimmer Insights';
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: isEnabled ? onTap : null,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: isEnabled ? gradient : LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.grey.withOpacity(0.3),
+              Colors.grey.withOpacity(0.1),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isEnabled ? 0.1 : 0.05),
+              blurRadius: 15,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(isEnabled ? 0.2 : 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: isEnabled ? Colors.white : Colors.grey,
+                    size: 22,
+                  ),
+                ),
+                if (showRequirement)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Need data',
+                      style: TextStyle(
+                        color: Colors.orange[700],
+                        fontSize: 8,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            
+            const SizedBox(height: 8),
+            
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: isEnabled ? Colors.white : Colors.grey[600],
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            
+            const SizedBox(height: 4),
+            
+            Expanded(
+              child: Text(
+                showRequirement ? 'Add training sessions first' : description,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isEnabled 
+                      ? Colors.white.withOpacity(0.9) 
+                      : Colors.grey[500],
+                  height: 1.2,
+                ),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _buildGetStartedSection() {
     return Container(
@@ -705,7 +750,6 @@ Widget _buildFeatureCard({
                 Icons.list_alt,
                 const Color(0xFF2196F3),
                 () {
-                  // Navigate to training sessions list
                   Navigator.pushNamed(context, '/training-sessions');
                 },
               ),
@@ -878,6 +922,7 @@ Widget _buildFeatureCard({
     );
   }
 
+ 
   Widget _buildProgressItem(String label, String value, IconData icon, Color color) {
     return Column(
       children: [
@@ -900,6 +945,94 @@ Widget _buildFeatureCard({
           textAlign: TextAlign.center,
         ),
       ],
+    );
+  }
+
+  Widget _buildQuickStats() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.withOpacity(0.12)),
+              ),
+              child: Column(
+                children: [
+                  Icon(Icons.pool, color: const Color(0xFF4CAF50), size: 20),
+                  const SizedBox(height: 6),
+                  Text(
+                    sessionCount.toString(),
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF4CAF50)),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Sessions',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.withOpacity(0.12)),
+              ),
+              child: Column(
+                children: [
+                  Icon(Icons.straighten, color: const Color(0xFF2196F3), size: 20),
+                  const SizedBox(height: 6),
+                  Text(
+                    '${totalDistance.toStringAsFixed(1)} km',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2196F3)),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Distance',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.withOpacity(0.12)),
+              ),
+              child: Column(
+                children: [
+                  Icon(Icons.timer, color: const Color(0xFFFF9800), size: 20),
+                  const SizedBox(height: 6),
+                  Text(
+                    '${totalHours}h',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFFFF9800)),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Time',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

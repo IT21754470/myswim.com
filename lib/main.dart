@@ -29,6 +29,7 @@ import 'screens/swimmer_performance_screen.dart';
 import 'screens/predict_best_finishing_time_screen.dart';
 import 'screens/swimmer_dashboard_screen.dart';
 import 'screens/analysis_results_screen.dart';
+import 'screens/personal_records_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -104,6 +105,7 @@ class MyApp extends StatelessWidget {
         '/profile': (context) => const ProfileScreen(),
         '/settings': (context) => const SettingsScreen(),
         '/training-sessions': (context) => const TrainingSessionsScreen(),
+        '/swimmer-toprecords': (context) => const PersonalRecordsScreen(),
 
         // New
         '/swimmer-performance': (context) => const SwimmerPerformanceScreen(),
