@@ -7,6 +7,7 @@ class ImprovementPrediction {
   final String description;
   final List<String> reasons;
   final List<String> topFactors;
+  final String? date; // ✅ Add this field
 
   ImprovementPrediction({
     required this.swimmerId,
@@ -15,10 +16,11 @@ class ImprovementPrediction {
     required this.description,
     this.reasons = const [],
     this.topFactors = const [],
+    this.date, // ✅ Add this parameter
   });
 
   factory ImprovementPrediction.fromJson(Map<String, dynamic> json) {
-    print('📦 Parsing prediction: $json'); // Debug log
+    print('📦 Parsing prediction: $json');
     
     return ImprovementPrediction(
       swimmerId: json['swimmer_id'] ?? 0,
@@ -31,17 +33,16 @@ class ImprovementPrediction {
       topFactors: json['top_factors'] != null
           ? List<String>.from(json['top_factors'])
           : [],
+      date: json['date'], // ✅ Parse date from JSON
     );
   }
 
-  // Helper to get color based on improvement
   Color get improvementColor {
     if (improvement > 0.1) return Colors.green;
     if (improvement < -0.1) return Colors.red;
     return Colors.orange;
   }
 
-  // Helper to get icon based on improvement
   IconData get improvementIcon {
     if (improvement > 0.1) return Icons.trending_up;
     if (improvement < -0.1) return Icons.trending_down;

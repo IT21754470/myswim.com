@@ -257,7 +257,7 @@ _buildInsightCard(
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => const FatiguePredictionScreen(),
+        builder: (context) => const FatiguePredictionsTab(),
       ),
     );
     if (result == true) {
