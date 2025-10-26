@@ -35,7 +35,7 @@ class TrainingSession {
     required this.gender,
     this.id,
     this.createdAt,
-    this.intensity,
+    this.intensity, required String userId,
   });
 factory TrainingSession.fromFirestore(Map<String, dynamic> data, String documentId) {
   print('🔄 Parsing Firestore data: $data'); // Debug print
@@ -55,7 +55,7 @@ factory TrainingSession.fromFirestore(Map<String, dynamic> data, String document
     baseTime: data['baseTime']?.toDouble(),
     actualTime: (data['actualTime'] ?? 0).toDouble(),
     gender: data['gender'] ?? 'Male',
-    createdAt: _parseDate(data['createdAt']),
+    createdAt: _parseDate(data['createdAt']), userId: '',
   );
 }
 
@@ -131,7 +131,7 @@ static DateTime _parseDate(dynamic dateValue) {
       actualTime: actualTime ?? this.actualTime,
       gender: gender ?? this.gender,
       id: id ?? this.id,
-      createdAt: createdAt ?? this.createdAt,
+      createdAt: createdAt ?? this.createdAt, userId: '',
     );
   }
 

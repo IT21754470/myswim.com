@@ -3,7 +3,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:swimming_app/models/personal_best.dart';
+import 'package:swimming_app/models/personal_record.dart';
 import 'package:swimming_app/models/user_profile.dart';
+import 'package:swimming_app/screens/personal_records_screen.dart';
+import 'package:swimming_app/services/personal_bests_service.dart';
+import 'package:swimming_app/services/personal_records_service.dart';
 import 'package:swimming_app/services/profile_service.dart';
 import 'package:swimming_app/services/training_session_service.dart';
 import '../models/training_session.dart';
@@ -382,7 +387,7 @@ class _AddTrainingSessionScreenState extends State<AddTrainingSessionScreen> {
     );
   }
 
-  Future<void> _submitForm() async {
+ Future<void> _submitForm() async {
   if (!_formKey.currentState!.validate()) return;
 
   setState(() {
@@ -398,11 +403,13 @@ class _AddTrainingSessionScreenState extends State<AddTrainingSessionScreen> {
     print('📝 Saving training session for user: ${user.uid}');
 
     final trainingDistance = double.parse(_trainingDistanceController.text);
-    final sessionDuration = double.parse(_sessionDurationController.text);
+    final sessionDurationMinutes = double.parse(_sessionDurationController.text);
+    final sessionDurationHours = sessionDurationMinutes / 60;
     final actualTime = double.parse(_actualTimeController.text);
     final pacePer100m = (actualTime / trainingDistance) * 100;
 
-    // ✅ First, ensure user has a profile
+    print('📊 Session metrics: Distance=${trainingDistance}m, Time=${actualTime}s, Pace=${pacePer100m}s/100m');
+
     var userProfile = await ProfileService.getUserProfile();
     if (userProfile == null) {
       print('📝 Creating new user profile...');
@@ -418,19 +425,24 @@ class _AddTrainingSessionScreenState extends State<AddTrainingSessionScreen> {
       print('✅ Default profile created');
     }
 
-    // ✅ Save the training session
-    final trainingSession = {
-      'userId': user.uid,
+    double? intensity;
+    if (_avgHeartRateController.text.isNotEmpty) {
+      final avgHeartRate = double.parse(_avgHeartRateController.text);
+      intensity = avgHeartRate / pacePer100m;
+    }
+
+    final trainingSession = {'userId': user.uid,
       'swimmerId': 1,
       'poolLength': _selectedPoolLength,
-      'date': _selectedDate.toIso8601String(),
+      'date': Timestamp.fromDate(_selectedDate),
       'strokeType': _selectedStroke,
       'trainingDistance': trainingDistance,
-      'sessionDuration': sessionDuration,
+      'sessionDuration': sessionDurationHours,
       'pacePer100m': pacePer100m,
       'laps': int.parse(_lapsController.text),
       'avgHeartRate': _avgHeartRateController.text.isNotEmpty 
           ? double.parse(_avgHeartRateController.text) : null,
+      'intensity': intensity,
       'restInterval': _restIntervalController.text.isNotEmpty 
           ? double.parse(_restIntervalController.text) : null,
       'baseTime': _baseTimeController.text.isNotEmpty 
@@ -447,15 +459,41 @@ class _AddTrainingSessionScreenState extends State<AddTrainingSessionScreen> {
 
     print('✅ Session saved with ID: ${docRef.id}');
 
-    // ✅ Update profile stats - this is the critical part
+    // Create TrainingSession object for PR check
+    final session = TrainingSession(
+      id: docRef.id,
+      userId: user.uid,
+      swimmerId: 1,
+      poolLength: _selectedPoolLength,
+      date: _selectedDate,
+      strokeType: _selectedStroke,
+      trainingDistance: trainingDistance,
+      sessionDuration: sessionDurationMinutes,
+      pacePer100m: pacePer100m,
+      laps: int.parse(_lapsController.text),
+      avgHeartRate: _avgHeartRateController.text.isNotEmpty 
+          ? double.parse(_avgHeartRateController.text) : null,
+      intensity: intensity,
+      restInterval: _restIntervalController.text.isNotEmpty 
+          ? double.parse(_restIntervalController.text) : null,
+      baseTime: _baseTimeController.text.isNotEmpty 
+          ? double.parse(_baseTimeController.text) : null,
+      actualTime: actualTime,
+      createdAt: DateTime.now(),
+      gender: userProfile.gender ?? 'Male',
+    );
+    
+    // Check for personal records
+    print('🏆 Checking for personal records...');
+    final newBest = await PersonalBestsService.checkForNewRecord(session);
+
+    // Update profile stats
     print('📊 Updating profile stats...');
     
-    // Calculate new totals
     final newSessionCount = userProfile.totalSessions + 1;
-    final newTotalDistance = userProfile.totalDistance + (trainingDistance / 1000); // Convert to km
-    final newTotalHours = userProfile.totalHours + (sessionDuration / 60).round(); // Convert to hours
+    final newTotalDistance = userProfile.totalDistance + (trainingDistance / 1000);
+    final newTotalHours = userProfile.totalHours + sessionDurationHours.round();
 
-    // Update the profile with new stats
     final updatedProfile = userProfile.copyWith(
       totalSessions: newSessionCount,
       totalDistance: newTotalDistance,
@@ -465,24 +503,34 @@ class _AddTrainingSessionScreenState extends State<AddTrainingSessionScreen> {
 
     await ProfileService.saveUserProfile(updatedProfile);
     
-    print('✅ Profile stats updated: $newSessionCount sessions, ${newTotalDistance}km, ${newTotalHours}h');
+    print('✅ Profile updated: $newSessionCount sessions, ${newTotalDistance.toStringAsFixed(2)}km, ${newTotalHours}h');
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Training session saved successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      Navigator.pop(context, true); // ✅ Return true to indicate success
+      // Show PR celebration if new record
+      if (newBest != null) {
+        print('🎉 NEW PERSONAL RECORD ACHIEVED!');
+        Navigator.pop(context, true); // Close form first
+        _showPRCelebration(newBest);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Training session saved successfully!'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+        Navigator.pop(context, true);
+      }
     }
-  } catch (e) {
+  } catch (e, stackTrace) {
     print('❌ Error saving session: $e');
+    print('Stack trace: $stackTrace');
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error saving session: $e'),
+          content: Text('Error: ${e.toString()}'),
           backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
         ),
       );
     }
@@ -493,4 +541,189 @@ class _AddTrainingSessionScreenState extends State<AddTrainingSessionScreen> {
       });
     }
   }
+}
+
+// PR Celebration Dialog
+void _showPRCelebration(PersonalBest best) {
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Container(
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Animated trophy icon
+            TweenAnimationBuilder(
+              tween: Tween<double>(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 600),
+              builder: (context, double value, child) {
+                return Transform.scale(
+                  scale: value,
+                  child: Transform.rotate(
+                    angle: value * 0.2,
+                    child: const Icon(
+                      Icons.emoji_events,
+                      size: 100,
+                      color: Colors.white,
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 24),
+            
+            // Celebration text
+            const Text(
+              '🎉 NEW PERSONAL RECORD! 🎉',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 26,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.2,
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // Stroke and distance
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    best.strokeType.toUpperCase(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${best.distance.toInt()} meters',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            
+            // Stats
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildStatItem('Time', best.formattedTime),
+                Container(
+                  width: 1,
+                  height: 40,
+                  color: Colors.white.withOpacity(0.3),
+                ),
+                _buildStatItem('Pace', best.formattedPace),
+              ],
+            ),
+            const SizedBox(height: 28),
+            
+            // Buttons
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      // Navigate to PR screen
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const PersonalRecordsScreen(),
+                        ),
+                      );
+                    },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white, width: 2),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'View All PRs',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: const Color(0xFFFFA500),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Awesome!',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+Widget _buildStatItem(String label, String value) {
+  return Column(
+    children: [
+      Text(
+        value,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      const SizedBox(height: 4),
+      Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white70,
+          fontSize: 12,
+        ),
+      ),
+    ],
+  );
 }}

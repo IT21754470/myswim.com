@@ -22,13 +22,19 @@ import 'screens/injury_prediction_screen.dart';
 import 'screens/turn_start_analysis_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/TrainingSessionsScreen.dart';
+import 'screens/subscription_screen.dart';
+
 
 // New screens
 import 'screens/swimmer_performance_screen.dart';
 import 'screens/predict_best_finishing_time_screen.dart';
 import 'screens/swimmer_dashboard_screen.dart';
 import 'screens/analysis_results_screen.dart';
+
 import 'screens/analysis_detail_screen.dart';
+
+import 'screens/personal_records_screen.dart';
 
 
 Future<void> main() async {
@@ -104,13 +110,19 @@ class MyApp extends StatelessWidget {
         '/turn-start-analysis': (context) => const TurnStartAnalysisScreen(),
         '/profile': (context) => const ProfileScreen(),
         '/settings': (context) => const SettingsScreen(),
+        '/training-sessions': (context) => const TrainingSessionsScreen(),
+        '/swimmer-toprecords': (context) => const PersonalRecordsScreen(),
 
         // New
         '/swimmer-performance': (context) => const SwimmerPerformanceScreen(),
         '/predict-best-finishing-time': (context) => const PredictBestFinishingTimeScreen(),
         '/swimmer-dashboard': (context) => const SwimmerDashboardScreen(),
         '/analysis-results': (context) => const AnalysisResultsScreen(),
+
         '/analysis-detail': (context) => const AnalysisDetailScreen(),
+
+
+        '/subscription': (context) => const SubscriptionScreen(),
 
       },
 

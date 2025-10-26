@@ -16,8 +16,11 @@ import 'swimmer_performance_screen.dart';
 import 'competitions_screen.dart';
 import 'analysis_results_screen.dart';
 import 'injury_prediction_screen.dart';
+
 import 'analysis_detail_screen.dart';
 
+
+import 'subscription_screen.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});

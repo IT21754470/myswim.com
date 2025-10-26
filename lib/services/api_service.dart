@@ -1,6 +1,4 @@
-// lib/services/api_service.dart
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
 
 class ApiService {
@@ -13,66 +11,55 @@ class ApiService {
     required String fatigueLevel,
   }) async {
     try {
-      final url = Uri.parse('$baseUrl/predict');
+      print('🌐 Calling recommendation API...');
+      print('   Swimmer: $swimmerId');
+      print('   Stroke: $strokeType');
+      print('   Improvement: $predictedImprovement');
+      print('   Fatigue: $fatigueLevel');
       
-      final requestBody = {
-        "swimmer_id": swimmerId,
-        "stroke_type": strokeType,
-        "predicted_improvement": predictedImprovement,
-        "fatigue_level": fatigueLevel,
-      };
-      
-      print('Making API request to: $url');
-      print('Request body: $requestBody');
-      
-      // Reduced timeout to 8 seconds for faster fallback
       final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: json.encode(requestBody),
-      ).timeout(
-        const Duration(seconds: 8),
-        onTimeout: () {
-          print('⏰ API request timed out - using local recommendations');
-          throw TimeoutException('API timeout', const Duration(seconds: 8));
-        },
-      );
-      
-      print('✅ Response status: ${response.statusCode}');
-      
+        Uri.parse('$baseUrl/predict'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'swimmer_id': swimmerId,
+          'stroke_type': strokeType,
+          'predicted_improvement': predictedImprovement,
+          'fatigue_level': fatigueLevel,
+        }),
+      ).timeout(const Duration(seconds: 15));
+
+      print('📡 API Response: ${response.statusCode}');
+
       if (response.statusCode == 200) {
-        final responseData = json.decode(response.body) as Map<String, dynamic>;
-        print('✅ API Success: Got recommendation');
-        return responseData;
+        final data = json.decode(response.body);
+        print('✅ API returned: ${data.keys}');
+        return data;
       } else {
-        print('❌ API Error: ${response.statusCode} - ${response.body}');
+        print('❌ API error: ${response.statusCode}');
         return null;
       }
-    } on TimeoutException catch (e) {
-      print('⏰ Timeout: ${e.message} - falling back to local');
-      return null;
-    } on SocketException catch (e) {
-      print('🌐 Network error: $e');
-      return null;
-    } on HttpException catch (e) {
-      print('📡 HTTP error: $e');
-      return null;
     } catch (e) {
-      print('💥 Unexpected error: $e');
+      print('❌ API exception: $e');
       return null;
     }
   }
-}
 
-class TimeoutException implements Exception {
-  final String message;
-  final Duration timeout;
-  
-  const TimeoutException(this.message, this.timeout);
-  
-  @override
-  String toString() => 'TimeoutException: $message';
+  // ✅ FIX: Always return bool, never null
+  static Future<bool> checkHealth() async {
+    try {
+      print('🏥 Checking API health...');
+      
+      final response = await http.get(
+        Uri.parse('$baseUrl/health'),
+      ).timeout(const Duration(seconds: 10));
+      
+      final isHealthy = response.statusCode == 200;
+      print(isHealthy ? '✅ API is healthy' : '⚠️  API returned ${response.statusCode}');
+      return isHealthy;
+      
+    } catch (e) {
+      print('❌ Health check failed: $e');
+      return false; // ✅ Always return false on error, not null
+    }
+  }
 }

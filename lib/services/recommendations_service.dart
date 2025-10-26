@@ -53,118 +53,130 @@ class RecommendationsService {
     }
   }
 
-  Map<String, dynamic> _analyzeUserData(List<TrainingSession> sessions) {
-    final now = DateTime.now();
-    final last30Days = sessions.where((s) => 
-        now.difference(s.date).inDays <= 30).toList();
-    final last7Days = sessions.where((s) => 
-        now.difference(s.date).inDays <= 7).toList();
+ Map<String, dynamic> _analyzeUserData(List<TrainingSession> sessions) {
+  final now = DateTime.now();
+  final last30Days = sessions.where((s) => 
+      now.difference(s.date).inDays <= 30).toList();
+  final last7Days = sessions.where((s) => 
+      now.difference(s.date).inDays <= 7).toList();
+  
+  // Analyze stroke distribution
+  final strokeCounts = <String, int>{};
+  final strokeDistances = <String, double>{};
+  final sessionDurations = <double>[];
+  final paceTimes = <String, List<double>>{};
+  
+  print('🔍 Analyzing ${last30Days.length} sessions from last 30 days');
+  
+  for (final session in last30Days) {
+    // Count stroke occurrences
+    strokeCounts[session.strokeType] = (strokeCounts[session.strokeType] ?? 0) + 1;
     
-    // Analyze stroke distribution
-    final strokeCounts = <String, int>{};
-    final strokeDistances = <String, double>{};
-    final sessionDurations = <double>[];
-    final paceTimes = <String, List<double>>{};
+    // Sum distances by stroke type
+    strokeDistances[session.strokeType] = 
+        (strokeDistances[session.strokeType] ?? 0) + session.trainingDistance;
     
-    print('🔍 Analyzing ${last30Days.length} sessions from last 30 days');
-    
-    for (final session in last30Days) {
-      // Count stroke occurrences
-      strokeCounts[session.strokeType] = (strokeCounts[session.strokeType] ?? 0) + 1;
-      
-      // Sum distances by stroke type
-      strokeDistances[session.strokeType] = 
-          (strokeDistances[session.strokeType] ?? 0) + session.trainingDistance;
-      
-      // Collect session durations (already in minutes as double)
-      sessionDurations.add(session.sessionDuration);
-      
-      // Collect pace data for performance analysis
-      if (!paceTimes.containsKey(session.strokeType)) {
-        paceTimes[session.strokeType] = [];
-      }
-      paceTimes[session.strokeType]!.add(session.pacePer100m);
-      
-      print('📈 Session: ${session.strokeType}, Distance: ${session.trainingDistance}m, Duration: ${session.sessionDuration}min, Pace: ${session.pacePer100m}s/100m');
+    // ✅ FIX: Convert session duration to minutes if it's in hours
+    double durationInMinutes = session.sessionDuration;
+    if (session.sessionDuration < 10) {
+      // Likely in hours, convert to minutes
+      durationInMinutes = session.sessionDuration * 60;
     }
+    sessionDurations.add(durationInMinutes);
     
-    // Find primary and secondary strokes
-    final sortedStrokes = strokeCounts.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
+    // Collect pace data for performance analysis
+    paceTimes.putIfAbsent(session.strokeType, () => []).add(session.pacePer100m);
     
-    // Calculate training frequency
-    final weeklyFrequency = last7Days.length;
-    final monthlyFrequency = last30Days.length;
-    
-    // Determine fatigue level based on frequency and intensity
-    String fatigueLevel = 'MEDIUM';
-    final recentIntenseSessions = last7Days.where((s) => 
-        s.sessionDuration > 45 || s.trainingDistance > 1000).length;
-    
-    if (weeklyFrequency > 5 || recentIntenseSessions > 3) {
-      fatigueLevel = 'HIGH';
-    } else if (weeklyFrequency < 2) {
-      fatigueLevel = 'LOW';
-    }
-    
-    // Calculate averages
-    final avgDuration = sessionDurations.isEmpty ? 30.0 : 
-        sessionDurations.reduce((a, b) => a + b) / sessionDurations.length;
-    
-    final avgDistance = last30Days.isEmpty ? 500.0 :
-        last30Days.map((s) => s.trainingDistance).reduce((a, b) => a + b) / last30Days.length;
-    
-    // Analyze performance trends
-    final performanceTrend = _analyzePerformanceTrend(last30Days);
-    
-    // Determine improvement potential based on consistency and performance
-    double improvementPotential = 0.3;
-    if (monthlyFrequency > 15 && performanceTrend == 'improving') {
-      improvementPotential = 0.5;
-    } else if (monthlyFrequency < 5 || performanceTrend == 'declining') {
-      improvementPotential = 0.2;
-    } else if (performanceTrend == 'stable') {
-      improvementPotential = 0.4;
-    }
-    
-    // Find training gaps
-    final allStrokes = ['Freestyle', 'Backstroke', 'Breaststroke', 'Butterfly'];
-    final missingStrokes = allStrokes
-        .where((stroke) => !strokeCounts.containsKey(stroke))
-        .toList();
-    
-    // Calculate days since last session
-    final daysSinceLastSession = sessions.isEmpty ? 0 : 
-        now.difference(sessions.first.date).inDays;
-    
-    // Analyze stroke balance
-    final primaryStrokePercentage = sortedStrokes.isNotEmpty ? 
-        (strokeCounts[sortedStrokes.first.key]! / monthlyFrequency * 100) : 0;
-    
-    final analysis = {
-      'primaryStroke': sortedStrokes.isNotEmpty ? sortedStrokes.first.key : 'Freestyle',
-      'secondaryStroke': sortedStrokes.length > 1 ? sortedStrokes[1].key : null,
-      'weeklyFrequency': weeklyFrequency,
-      'monthlyFrequency': monthlyFrequency,
-      'fatigueLevel': fatigueLevel,
-      'avgDuration': avgDuration,
-      'avgDistance': avgDistance,
-      'improvementPotential': improvementPotential,
-      'missingStrokes': missingStrokes,
-      'daysSinceLastSession': daysSinceLastSession,
-      'totalDistance': strokeDistances.values.fold(0.0, (a, b) => a + b),
-      'strokeVariety': strokeCounts.length,
-      'strokeCounts': strokeCounts,
-      'strokeDistances': strokeDistances,
-      'performanceTrend': performanceTrend,
-      'primaryStrokePercentage': primaryStrokePercentage,
-      'paceTimes': paceTimes,
-      'recentIntenseSessions': recentIntenseSessions,
-    };
-    
-    print('📊 Analysis complete: $analysis');
-    return analysis;
+    print('📈 Session: ${session.strokeType}, Distance: ${session.trainingDistance}m, Duration: ${durationInMinutes.toStringAsFixed(1)}min, Pace: ${session.pacePer100m}s/100m');
   }
+  
+  // Find primary and secondary strokes
+  final sortedStrokes = strokeCounts.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+  
+  // Calculate training frequency
+  final weeklyFrequency = last7Days.length;
+  final monthlyFrequency = last30Days.length;
+  
+  // Determine fatigue level based on frequency and intensity
+  String fatigueLevel = 'MEDIUM';
+  final recentIntenseSessions = last7Days.where((s) {
+    double duration = s.sessionDuration < 10 ? s.sessionDuration * 60 : s.sessionDuration;
+    return duration > 45 || s.trainingDistance > 1000;
+  }).length;
+  
+  if (weeklyFrequency > 5 || recentIntenseSessions > 3) {
+    fatigueLevel = 'HIGH';
+  } else if (weeklyFrequency < 2) {
+    fatigueLevel = 'LOW';
+  }
+  
+  // Calculate averages
+  final avgDuration = sessionDurations.isEmpty ? 30.0 : 
+      sessionDurations.reduce((a, b) => a + b) / sessionDurations.length;
+  
+  final avgDistance = last30Days.isEmpty ? 500.0 :
+      last30Days.map((s) => s.trainingDistance).reduce((a, b) => a + b) / last30Days.length;
+  
+  // Analyze performance trends
+  final performanceTrend = _analyzePerformanceTrend(last30Days);
+  
+  // Determine improvement potential
+  double improvementPotential = 0.3;
+  if (monthlyFrequency > 15 && performanceTrend == 'improving') {
+    improvementPotential = 0.5;
+  } else if (monthlyFrequency < 5 || performanceTrend == 'declining') {
+    improvementPotential = 0.2;
+  } else if (performanceTrend == 'stable') {
+    improvementPotential = 0.4;
+  }
+  
+  // Find training gaps
+  final allStrokes = ['Freestyle', 'Backstroke', 'Breaststroke', 'Butterfly'];
+  final missingStrokes = allStrokes
+      .where((stroke) => !strokeCounts.containsKey(stroke))
+      .toList();
+  
+  // Calculate days since last session
+  final daysSinceLastSession = sessions.isEmpty ? 0 : 
+      now.difference(sessions.first.date).inDays;
+  
+  // Analyze stroke balance
+  final primaryStrokePercentage = sortedStrokes.isNotEmpty && monthlyFrequency > 0 ? 
+      (strokeCounts[sortedStrokes.first.key]! / monthlyFrequency * 100) : 0.0;
+  
+  final analysis = {
+    'primaryStroke': sortedStrokes.isNotEmpty ? sortedStrokes.first.key : 'Freestyle',
+    'secondaryStroke': sortedStrokes.length > 1 ? sortedStrokes[1].key : null,
+    'weeklyFrequency': weeklyFrequency,
+    'monthlyFrequency': monthlyFrequency,
+    'fatigueLevel': fatigueLevel,
+    'avgDuration': avgDuration,
+    'avgDistance': avgDistance,
+    'improvementPotential': improvementPotential,
+    'missingStrokes': missingStrokes,
+    'daysSinceLastSession': daysSinceLastSession,
+    'totalDistance': strokeDistances.values.fold(0.0, (a, b) => a + b),
+    'strokeVariety': strokeCounts.length,
+    'strokeCounts': strokeCounts,
+    'strokeDistances': strokeDistances,
+    'performanceTrend': performanceTrend,
+    'primaryStrokePercentage': primaryStrokePercentage,
+    'paceTimes': paceTimes,
+    'recentIntenseSessions': recentIntenseSessions,
+  };
+  
+  print('📊 Analysis Summary:');
+  print('   Primary Stroke: ${analysis['primaryStroke']}');
+  print('   Weekly Frequency: $weeklyFrequency sessions');
+  print('   Monthly Frequency: $monthlyFrequency sessions');
+  print('   Avg Duration: ${avgDuration.toStringAsFixed(1)} minutes');
+  print('   Avg Distance: ${avgDistance.toStringAsFixed(0)}m');
+  print('   Fatigue Level: $fatigueLevel');
+  print('   Performance Trend: $performanceTrend');
+  
+  return analysis;
+}
 
   String _analyzePerformanceTrend(List<TrainingSession> sessions) {
     if (sessions.length < 3) return 'insufficient_data';
@@ -191,41 +203,50 @@ class RecommendationsService {
   }
 
   Future<List<SwimmingRecommendation>?> _tryGetApiRecommendations(
-      List<TrainingSession> sessions, String userId) async {
-    
-    try {
-      final analysis = _analyzeUserData(sessions);
-      
-      // Get API recommendation for their most practiced stroke
-      if (analysis['primaryStroke'] != null) {
-        final apiResponse = await ApiService.getPrediction(
-          swimmerId: userId,
-          strokeType: _normalizeStrokeType(analysis['primaryStroke']),
-          predictedImprovement: analysis['improvementPotential'],
-          fatigueLevel: analysis['fatigueLevel'],
-        );
-        
-        if (apiResponse != null) {
-          final recommendations = <SwimmingRecommendation>[];
-          
-          // Add AI recommendation
-          final apiRec = _convertApiToRecommendation(apiResponse, analysis);
-          recommendations.add(apiRec);
-          
-          // Add smart local recommendations based on gaps
-          recommendations.addAll(_generateComplementaryRecommendations(analysis));
-          
-          return recommendations;
-        }
-      }
-      
-      return null;
-    } catch (e) {
-      print('🔄 API failed: $e');
-      _lastError = 'API unavailable';
+    List<TrainingSession> sessions, String userId) async {
+  
+  try {
+    // Check API health first
+    final isHealthy = await ApiService.checkHealth();
+    if (!isHealthy) {
+      print('⚠️  API is not healthy, skipping API call');
       return null;
     }
+    
+    final analysis = _analyzeUserData(sessions);
+    
+    // Get API recommendation for their most practiced stroke
+    if (analysis['primaryStroke'] != null) {
+      final apiResponse = await ApiService.getPrediction(
+        swimmerId: userId,
+        strokeType: _normalizeStrokeType(analysis['primaryStroke']),
+        predictedImprovement: analysis['improvementPotential'],
+        fatigueLevel: analysis['fatigueLevel'],
+      );
+      
+      if (apiResponse != null && apiResponse.isNotEmpty) {
+        final recommendations = <SwimmingRecommendation>[];
+        
+        // Add AI recommendation
+        final apiRec = _convertApiToRecommendation(apiResponse, analysis);
+        recommendations.add(apiRec);
+        
+        // Add smart local recommendations based on gaps
+        recommendations.addAll(_generateComplementaryRecommendations(analysis));
+        
+        print('✅ Generated ${recommendations.length} recommendations (including API)');
+        return recommendations;
+      }
+    }
+    
+    print('⚠️  No valid API response');
+    return null;
+  } catch (e) {
+    print('🔄 API call failed: $e');
+    _lastError = 'API unavailable: ${e.toString()}';
+    return null;
   }
+}
 
   List<SwimmingRecommendation> _generateIntelligentRecommendations(
       List<TrainingSession> sessions) {

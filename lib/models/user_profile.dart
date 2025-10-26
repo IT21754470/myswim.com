@@ -12,6 +12,12 @@ class UserProfile {
   final int totalHours;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  
+  // ✅ Pro User Fields
+  final bool isPro;
+  final DateTime? proExpiryDate;
+  final String? subscriptionType; // 'monthly', 'yearly', 'lifetime'
+  final String? paymentMethod;
 
   UserProfile({
     this.name,
@@ -25,7 +31,19 @@ class UserProfile {
     this.totalHours = 0,
     this.createdAt,
     this.updatedAt,
+    this.isPro = false,
+    this.proExpiryDate,
+    this.subscriptionType,
+    this.paymentMethod,
   });
+
+  // ✅ Check if pro is active
+  bool get isProActive {
+    if (!isPro) return false;
+    if (subscriptionType == 'lifetime') return true;
+    if (proExpiryDate == null) return false;
+    return proExpiryDate!.isAfter(DateTime.now());
+  }
 
   Map<String, dynamic> toMap() {
     return {
@@ -40,6 +58,10 @@ class UserProfile {
       'totalHours': totalHours,
       'createdAt': createdAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
       'updatedAt': DateTime.now().toIso8601String(),
+      'isPro': isPro,
+      'proExpiryDate': proExpiryDate?.toIso8601String(),
+      'subscriptionType': subscriptionType,
+      'paymentMethod': paymentMethod,
     };
   }
 
@@ -56,6 +78,10 @@ class UserProfile {
       totalHours: map['totalHours'] ?? 0,
       createdAt: map['createdAt'] != null ? DateTime.parse(map['createdAt']) : null,
       updatedAt: map['updatedAt'] != null ? DateTime.parse(map['updatedAt']) : null,
+      isPro: map['isPro'] ?? false,
+      proExpiryDate: map['proExpiryDate'] != null ? DateTime.parse(map['proExpiryDate']) : null,
+      subscriptionType: map['subscriptionType'],
+      paymentMethod: map['paymentMethod'],
     );
   }
 
@@ -71,6 +97,10 @@ class UserProfile {
     int? totalHours,
     DateTime? createdAt,
     DateTime? updatedAt,
+    bool? isPro,
+    DateTime? proExpiryDate,
+    String? subscriptionType,
+    String? paymentMethod,
   }) {
     return UserProfile(
       name: name ?? this.name,
@@ -84,6 +114,10 @@ class UserProfile {
       totalHours: totalHours ?? this.totalHours,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      isPro: isPro ?? this.isPro,
+      proExpiryDate: proExpiryDate ?? this.proExpiryDate,
+      subscriptionType: subscriptionType ?? this.subscriptionType,
+      paymentMethod: paymentMethod ?? this.paymentMethod,
     );
   }
 }
