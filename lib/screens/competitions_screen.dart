@@ -3,6 +3,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'dart:async';
+
+// ✅ Logged-in swimmer scope
+import 'package:firebase_auth/firebase_auth.dart';
 
 // Screens you already have / created elsewhere
 import 'swimmer_performance_screen.dart';
@@ -66,6 +70,7 @@ Future<CompetitionStats> fetchCompetitionStats({
   required DateTime date,
   required String distance,
   required String stroke,
+  String? userId, // ✅ scope by swimmer
 }) async {
   await Future.delayed(const Duration(milliseconds: 50)); // keep async shape
 
@@ -73,7 +78,11 @@ Future<CompetitionStats> fetchCompetitionStats({
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);
 
-  final items = store.items;
+  // ✅ Filter by logged-in swimmer when available
+  final items = store.items.where((r) {
+    if (userId == null) return false; // no data if not signed in
+    return r.swimmerId == userId;
+  }).toList();
 
   final upcomingCompetitions = items.where((r) =>
       (r.competition?.trim().isNotEmpty ?? false) &&
@@ -105,6 +114,26 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
   DateTime selectedDate = DateTime.now();
   String selectedDistance = '100m';
   String selectedStroke = 'Freestyle';
+
+  // ✅ track logged-in swimmer
+  String? _uid;
+  late final StreamSubscription<User?> _authSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _uid = FirebaseAuth.instance.currentUser?.uid;
+    _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (!mounted) return;
+      setState(() => _uid = user?.uid);
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSub.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -139,7 +168,6 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
           ),
         ],
       ),
-      // ⛔️ Removed the FloatingActionButton as requested
       body: RefreshIndicator(
         color: BrandColors.primary,
         backgroundColor: BrandColors.surface,
@@ -150,13 +178,15 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
             // 🔁 Performance Snapshot (colorful but light)
             _HeaderStatsCard(
               titleText: "Performance Snapshot",
-              staticSubtitle:
-                  "At a glance: meets on the calendar, prediction count, and training volume—updated as you add data.",
+              staticSubtitle: _uid == null
+                  ? "Sign in to see your competitions, predictions and training volume."
+                  : "At a glance: meets on the calendar, prediction count, and training volume—updated as you add data.",
               dateValue: dateOnly,
               loader: () => fetchCompetitionStats(
                 date: selectedDate,
                 distance: selectedDistance,
                 stroke: selectedStroke,
+                userId: _uid, // ✅ pass swimmer
               ),
               contextChips: const [],
             ),
@@ -204,9 +234,9 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
               onTap: _openSwimmerDashboard,
             ),
 
-            // ——— Upcoming Competition (single soonest future entry)
+            // ——— Only ONE upcoming competitions section (list)
             const SizedBox(height: 22),
-            const _UpcomingCompetitionCard(),
+            _UpcomingCompetitionsList(currentUserId: _uid),
 
             const SizedBox(height: 12),
             const _SimpleInfoCard(
@@ -253,8 +283,6 @@ class _HeaderStatsCard extends StatelessWidget {
     required this.titleText,
     this.staticSubtitle,
     this.dateValue,
-    // ignore: duplicate_ignore
-    // ignore: unused_element_parameter
     this.contextChips, this.subtitleBuilder,
   });
 
@@ -590,16 +618,17 @@ class _SimpleInfoCard extends StatelessWidget {
 }
 
 /// =====================================
-/// Upcoming Competition — single nearest future item
+/// Full list of upcoming competitions (scoped to swimmer)
 /// =====================================
-class _UpcomingCompetitionCard extends StatefulWidget {
-  const _UpcomingCompetitionCard();
+class _UpcomingCompetitionsList extends StatefulWidget {
+  final String? currentUserId;
+  const _UpcomingCompetitionsList({this.currentUserId});
 
   @override
-  State<_UpcomingCompetitionCard> createState() => _UpcomingCompetitionCardState();
+  State<_UpcomingCompetitionsList> createState() => _UpcomingCompetitionsListState();
 }
 
-class _UpcomingCompetitionCardState extends State<_UpcomingCompetitionCard> {
+class _UpcomingCompetitionsListState extends State<_UpcomingCompetitionsList> {
   final _store = SwimHistoryStore();
 
   @override
@@ -628,29 +657,32 @@ class _UpcomingCompetitionCardState extends State<_UpcomingCompetitionCard> {
 
   @override
   Widget build(BuildContext context) {
-    final today = _ymd(DateTime.now());
-
-    // Find the soonest future competition (>= today)
-    final futureComps = _store.items
-        .where((r) => (r.competition?.trim().isNotEmpty ?? false) && !_ymd(r.sessionDate).isBefore(today))
-        .toList()
-      ..sort((a, b) => _ymd(a.sessionDate).compareTo(_ymd(b.sessionDate)));
-
-    if (futureComps.isEmpty) {
+    if (widget.currentUserId == null) {
       return const _SimpleInfoCard(
-        icon: Icons.calendar_month,
-        title: "Upcoming Competition",
-        body: 'No upcoming competitions found. Add one to see it here.',
+        icon: Icons.lock_outline,
+        title: "Upcoming Competitions",
+        body: "Sign in to see your upcoming competitions.",
       );
     }
 
-    final s = futureComps.first; // the nearest upcoming
-    final startDate = _ymd(s.sessionDate);
-    final endDate = startDate; // no end date in model, show same day
-    final daysUntil = _daysUntil(startDate);
-    final event = '${s.distance} • ${s.stroke}';
-    final startStr = DateFormat('EEE, dd MMM yyyy').format(startDate);
-    final endStr = DateFormat('EEE, dd MMM yyyy').format(endDate);
+    final today = _ymd(DateTime.now());
+
+    // ✅ Only THIS swimmer, future (>= today), has competition name
+    final list = _store.items
+        .where((r) =>
+            r.swimmerId == widget.currentUserId &&
+            (r.competition?.trim().isNotEmpty ?? false) &&
+            !_ymd(r.sessionDate).isBefore(today))
+        .toList()
+      ..sort((a, b) => _ymd(a.sessionDate).compareTo(_ymd(b.sessionDate)));
+
+    if (list.isEmpty) {
+      return const _SimpleInfoCard(
+        icon: Icons.calendar_month_outlined,
+        title: "Upcoming Competitions",
+        body: "No upcoming competitions found for your account.",
+      );
+    }
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -665,87 +697,92 @@ class _UpcomingCompetitionCardState extends State<_UpcomingCompetitionCard> {
           // Header
           Row(
             children: [
-              const Icon(Icons.calendar_month, color: BrandColors.primary),
+              const Icon(Icons.event_available, color: BrandColors.primary),
               const SizedBox(width: 8),
               const Text(
-                "Upcoming Competition",
+                "Upcoming Competitions",
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: BrandColors.headline),
               ),
               const Spacer(),
-              _CountBadge(count: 1),
+              _CountBadge(count: list.length),
             ],
           ),
           const SizedBox(height: 10),
 
-          // Body
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: BrandColors.border),
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFFEFFBFF), Color(0xFFE7F0FF)],
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Name
-                Text(s.competition ?? '—',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
-                      color: BrandColors.headline,
-                    )),
-                const SizedBox(height: 10),
+          // List
+          ...List.generate(list.length, (i) {
+            final s = list[i];
+            final days = _daysUntil(s.sessionDate);
+            final dateStr = DateFormat('EEE, dd MMM yyyy').format(s.sessionDate);
+            final event = '${s.distance} • ${s.stroke}';
 
-                // Grid of fields
-                Wrap(
-                  runSpacing: 8,
-                  spacing: 16,
+            return Padding(
+              padding: EdgeInsets.only(bottom: i == list.length - 1 ? 0 : 10),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: BrandColors.surfaceAlt,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: BrandColors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _kv('Days until', daysUntil >= 0 ? '$daysUntil' : '—'),
-                    _kv('Start date', startStr),
-                    _kv('End date', endStr),
-                    _kv('Name', s.competition ?? '—'),
-                    _kv('Competition', event),
+                    // Title row
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            s.competition ?? '—',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15,
+                              color: BrandColors.headline,
+                            ),
+                          ),
+                        ),
+                        Chip(
+                          label: Text(
+                            days >= 0 ? '$days d' : '—',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          avatar: const Icon(Icons.hourglass_bottom_rounded, size: 16),
+                          backgroundColor: Colors.teal.withOpacity(.08),
+                          side: BorderSide(color: Colors.teal.withOpacity(.25)),
+                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Info chips
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: -6,
+                      children: [
+                        Chip(
+                          avatar: const Icon(Icons.event, size: 16, color: Colors.indigo),
+                          label: Text(dateStr),
+                          backgroundColor: Colors.indigo.withOpacity(.06),
+                        ),
+                        Chip(
+                          avatar: const Icon(Icons.pool_rounded, size: 16, color: Colors.blueGrey),
+                          label: Text(event),
+                          backgroundColor: Colors.blueGrey.withOpacity(.06),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          }),
         ],
       ),
     );
   }
-
-  Widget _kv(String k, String v) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: BrandColors.surfaceAlt,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: BrandColors.border),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text('$k: ', style: TextStyle(color: Colors.black.withOpacity(.65))),
-          Text(v, style: const TextStyle(fontWeight: FontWeight.w700)),
-        ],
-      ),
-    );
-  }
-}
-
-class _CompAgg {
-  final String name;
-  DateTime? startDate;
-  DateTime? endDate;
-  String? location;
-  _CompAgg(this.name);
 }
 
 class _CountBadge extends StatelessWidget {

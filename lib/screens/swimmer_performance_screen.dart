@@ -700,7 +700,9 @@ class PerformanceChartCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final n = dates.length;
+
+    // NOTE: We intentionally do NOT render the dates row anymore.
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -708,30 +710,22 @@ class PerformanceChartCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 2))],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            height: height,
-            child: CustomPaint(
-              painter: _SimpleChartPainter(
-                points: points,
-                startColor: colors.first,
-                endColor: colors.last,
-                avgSeconds: avgSeconds,
-                highlightIndex: highlightIndex,
-                overlayLabel: overlayLabel,
-                showValueLabels: showValueLabels,
-                valueLabelForPoint: valueLabelForPoint,
-              ),
-            ),
+
+      child: SizedBox(
+        height: height,
+        child: CustomPaint(
+          painter: _SimpleChartPainter(
+            points: points,
+            startColor: colors.first,
+            endColor: colors.last,
+            avgSeconds: avgSeconds,
+            highlightIndex: highlightIndex,
+            overlayLabel: overlayLabel,
+            showValueLabels: showValueLabels,
+            valueLabelForPoint: valueLabelForPoint,
+
           ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: List.generate(n, (i) => Text(labelForDay(dates[i]), style: const TextStyle(fontSize: 11))),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -830,7 +824,9 @@ class _SimpleChartPainter extends CustomPainter {
             text: overlayLabel!,
             style: TextStyle(color: endColor.withOpacity(0.7), fontSize: 10),
           ),
-          //textDirection: TextDirection.ltr, // ✅ ensure safe on all channels
+
+          //textDirection: TextDirection.ltr, // ✅ optional
+
         )..layout();
         tp.paint(canvas, Offset(pad + w - tp.width, y - tp.height - 2));
       }
@@ -865,7 +861,9 @@ class _SimpleChartPainter extends CustomPainter {
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
-          //textDirection: TextDirection.ltr, // ✅ ensure safe on all channels
+
+          //textDirection: TextDirection.ltr, // ✅ optional
+
           maxLines: 1,
         )..layout();
 

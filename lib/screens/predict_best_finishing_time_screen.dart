@@ -1,7 +1,10 @@
 // ignore_for_file: deprecated_member_use, sort_child_properties_last, no_leading_underscores_for_local_identifiers, prefer_const_constructors, unnecessary_import
 import 'dart:ui' show FontFeature;
+import 'dart:convert'; // <-- added for http json decode
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:geolocator/geolocator.dart'; // <-- added for location
+import 'package:http/http.dart' as http; // <-- added for Open-Meteo requests
 
 // 🔌 Firebase identity + data
 import 'package:firebase_auth/firebase_auth.dart';
@@ -15,6 +18,7 @@ import '../models/user_profile.dart';
 
 // 🔌 Backend prediction service (singleton: predictionService)
 import '../services/prediction_service.dart';
+import '../services/env_service.dart';
 
 /// ---- Vibrant Palette
 class BrandColors {
@@ -64,10 +68,22 @@ class BrandTheme {
   }
 
   static const backgroundGradient = [
-    Color(0xFFF9FBFF),
-    Color(0xFFF4FAFF),
-    Color(0xFFFDF7FF),
-  ];
+  Color(0xFFF4FAFF),
+  Color(0xFFE9F6FF),
+  Color(0xFFDDF3FF),
+];
+
+}
+
+extension ColorUtils on Color {
+  /// Returns a darker variant of this color by the given [amount] (0.0-1.0).
+  /// Example: color.darken(0.15) reduces lightness by 15%.
+  Color darken([double amount = .1]) {
+    assert(amount >= 0 && amount <= 1);
+    final hsl = HSLColor.fromColor(this);
+    final hslDarker = hsl.withLightness((hsl.lightness - amount).clamp(0.0, 1.0) as double);
+    return hslDarker.toColor();
+  }
 }
 
 /// ---- Time helpers
@@ -324,6 +340,11 @@ class _PredictBestFinishingTimeScreenState extends State<PredictBestFinishingTim
 
   final _quickFormKey = GlobalKey<FormState>();
 
+  // --- automatic weather (added)
+  double? _autoTemp;
+  double? _autoHumidity;
+  bool _loadingWeather = false;
+
   bool _predicting = false;
   String? _predicted;
   String? _conf;
@@ -341,11 +362,31 @@ class _PredictBestFinishingTimeScreenState extends State<PredictBestFinishingTim
     Navigator.of(context).pushNamed('/swimmer-performance', arguments: p);
   }
 
+  Future<void> _fetchWeatherAuto() async {
+    setState(() => _loadingWeather = true);
+    try {
+      final weather = await fetchWeatherAuto();
+      if (mounted) {
+        setState(() {
+          _autoTemp = weather['temp'];
+          _autoHumidity = weather['humidity'];
+          _waterCtrl.text = _autoTemp?.toStringAsFixed(1) ?? '';
+          _humidCtrl.text = _autoHumidity?.toStringAsFixed(0) ?? '';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _loadingWeather = false);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _hydrateUser();
     _tabController = TabController(length: 3, vsync: this);
+
+    _fetchWeatherAuto(); // start auto-weather fetch
+
   }
 
   @override
@@ -665,263 +706,340 @@ class _PredictBestFinishingTimeScreenState extends State<PredictBestFinishingTim
               ),
             ),
           ),
-          body: SafeArea(
-            bottom: false,
-            child: TabBarView(
-              controller: _tabController,
-              physics: const BouncingScrollPhysics(),
+
+  // ✅ put this inside your Scaffold:
+resizeToAvoidBottomInset: true,
+
+body: SafeArea(
+  maintainBottomViewPadding: true,
+  child: Padding(
+    padding: EdgeInsets.only(
+      // include keyboard inset + device safe area + extra buffer to avoid tiny overflows
+      bottom: MediaQuery.of(context).viewInsets.bottom + MediaQuery.of(context).padding.bottom + 24,
+    ),
+    child: TabBarView(
+      controller: _tabController,
+      children: [
+        // === Tab 1: Quick Predict (with pull-to-refresh) ===
+        RefreshIndicator(
+          onRefresh: _refreshAll,
+          child: Form(
+            key: _quickFormKey,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: BouncingScrollPhysics(),
+              ),
+              keyboardDismissBehavior:
+                  ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: EdgeInsets.fromLTRB(
+                16,
+                12,
+                16,
+                // keep original bottom space and account for system insets
+                32 + MediaQuery.of(context).viewInsets.bottom + MediaQuery.of(context).padding.bottom,
+              ),
               children: [
-                // === Tab 1: Quick Predict (with pull-to-refresh) ===
-                RefreshIndicator(
-                  onRefresh: _refreshAll,
-                  child: Form(
-                    key: _quickFormKey,
-                    child: ListView(
-                      physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-                      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: EdgeInsets.fromLTRB(
-                        16, 12, 16,
-                        24 + MediaQuery.of(context).viewInsets.bottom,
-                      ),
-                      children: [
-                        _GlassCard(
-                          borderColor: colors.last.withOpacity(.35),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const _SectionTitle('Set your race context'),
-                              const SizedBox(height: 10),
-                              Row(children: [
-                                Expanded(
-                                  child: _FieldDateLike(
-                                    label: 'Race date',
-                                    value: DateFormat('yyyy-MM-dd').format(_raceDate),
-                                    onTap: _pickDate,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _Dropdown(
-                                    label: 'Distance',
-                                    value: _distance,
-                                    items: const ['50m', '100m', '200m', '400m'],
-                                    onChanged: (v) => setState(() {
-                                      _distance = v!;
-                                      _refreshAutoBaseline();
-                                    }),
-                                  ),
-                                ),
-                              ]),
-                              const SizedBox(height: 10),
-                              _Dropdown(
-                                label: 'Stroke',
-                                value: _stroke,
-                                items: const ['Freestyle', 'Backstroke', 'Breaststroke', 'Butterfly'],
-                                onChanged: (v) => setState(() {
-                                  _stroke = v!;
-                                  _refreshAutoBaseline();
-                                }),
-                              ),
-                            ],
-                          ),
-                          gradient: LinearGradient(colors: [colors.first.withOpacity(.15), colors.last.withOpacity(.10)]),
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        _GlassCard(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const _SectionTitle('Inputs'),
-                              const SizedBox(height: 10),
-
-                              if (_loadingBaseline)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: Row(
-                                    children: const [
-                                      SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                                      SizedBox(width: 8),
-                                      Text('Loading your best baseline...'),
-                                    ],
-                                  ),
-                                )
-                              else if (_baselineSourceNote != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: Row(
-                                    children: [
-                                      const Icon(Icons.info_outline, size: 16, color: Colors.black54),
-                                      const SizedBox(width: 6),
-                                      Flexible(
-                                        child: Text(
-                                          _baselineSourceNote!,
-                                          style: const TextStyle(fontSize: 12, color: Colors.black54),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-
-                              _TextField(
-                                label: 'Baseline best time',
-                                controller: _baselineCtrl,
-                                hint: 'mm:ss.ss or seconds',
-                                validator: _requiredTime,
-                                icon: Icons.timer_rounded,
-                                readOnly: false,
-                              ),
-                              const SizedBox(height: 10),
-                              Row(children: [
-                                Expanded(
-                                  child: _TextField(
-                                    label: 'Water Temp',
-                                    controller: _waterCtrl,
-                                    keyboardType: TextInputType.number,
-                                    validator: (v) => _requiredNum(v, name: 'Water temperature'),
-                                    suffixText: '°C',
-                                    icon: Icons.water_drop_rounded,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _TextField(
-                                    label: 'Humidity',
-                                    controller: _humidCtrl,
-                                    keyboardType: TextInputType.text,
-                                    validator: _requiredHumidity, // accepts 55 or 40-55
-                                    suffixText: '% or 40-55',
-                                    icon: Icons.air_rounded,
-                                  ),
-                                ),
-                              ]),
-                              const SizedBox(height: 14),
-                              GradientButton(
-                                text: 'Predict',
-                                onPressed: _predicting ? null : _doPredict,
-                                colors: colors,
-                                loading: _predicting,
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        if (_predicted != null)
-                          _GlassCard(
-                            borderColor: colors.last.withOpacity(.35),
-                            gradient: LinearGradient(colors: [colors.first.withOpacity(.12), colors.last.withOpacity(.08)]),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const _SectionTitle('Estimated finishing time'),
-                                const SizedBox(height: 6),
-                                Row(
-                                  children: [
-                                    Icon(status.icon, color: status.color),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      _predicted!,
-                                      style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: status.color),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Text('Confidence: ${_conf ?? "—"}'),
-                                const SizedBox(height: 8),
-                                Wrap(spacing: 8, runSpacing: -6, children: [
-                                  _Pill(text: 'Date: ${DateFormat('EEE, dd MMM').format(_raceDate)}', tint: colors.first),
-                                  _Pill(text: 'Distance: $_distance', tint: colors.first),
-                                  _Pill(text: 'Stroke: $_stroke', tint: colors.first),
-                                  _StatusPill(status),
-                                  if (delta != null) ...[
-                                    _Pill(text: _deltaLabel(delta), tint: status.color),
-                                    if (pct != null)
-                                      _Pill(
-                                        text: '(${(delta < 0 ? '-' : '+')}${pct.abs().toStringAsFixed(1)}%)',
-                                        tint: status.color,
-                                      ),
-                                  ],
-                                ]),
-                                const SizedBox(height: 10),
-                                GradientButton(text: 'Use in Performance', onPressed: _applyToPerformance, colors: colors),
-                              ],
+                _GlassCard(
+                  borderColor: colors.last.withOpacity(.35),
+                  gradient: LinearGradient(
+                    colors: [
+                      colors.first.withOpacity(.15),
+                      colors.last.withOpacity(.10)
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const _SectionTitle('Set your race context'),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _FieldDateLike(
+                              label: 'Race date',
+                              value: DateFormat('yyyy-MM-dd')
+                                  .format(_raceDate),
+                              onTap: _pickDate,
                             ),
                           ),
-                      ],
-                    ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _Dropdown(
+                              label: 'Distance',
+                              value: _distance,
+                              items: const [
+                                '50m',
+                                '100m',
+                                '200m',
+                                '400m'
+                              ],
+                              onChanged: (v) => setState(() {
+                                _distance = v!;
+                                _refreshAutoBaseline();
+                              }),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      _Dropdown(
+                        label: 'Stroke',
+                        value: _stroke,
+                        items: const [
+                          'Freestyle',
+                          'Backstroke',
+                          'Breaststroke',
+                          'Butterfly'
+                        ],
+                        onChanged: (v) => setState(() {
+                          _stroke = v!;
+                          _refreshAutoBaseline();
+                        }),
+                      ),
+                    ],
                   ),
                 ),
 
-                // === Tab 2: Training & Predict (with pull-to-refresh) ===
-                _TrainingAndPredictTabX(
-                  onRefresh: _refreshAll,
-                  selectedDate: _raceDate,
-                  onPickDate: (d) => setState(() => _raceDate = d),
-                  distance: _distance,
-                  onChangeDistance: (v) => setState(() {
-                    _distance = v;
-                    _refreshAutoBaseline();
-                  }),
-                  stroke: _stroke,
-                  onChangeStroke: (v) => setState(() {
-                    _stroke = v;
-                    _refreshAutoBaseline();
-                  }),
-                  onSaveBestTime: (bt) {
-                    if ((bt ?? '').isNotEmpty) _baselineCtrl.text = bt!;
-                  },
-                  onSaveEnvironment: (wt, hu) {
-                    _waterCtrl.text = wt?.toString() ?? '';
-                    _humidCtrl.text = hu?.toString() ?? '';
-                  },
-                  bestTimeBaseline: _baselineCtrl.text.isEmpty ? null : _baselineCtrl.text,
-                  onApplyToPerformance: (
-                    String predicted,
-                    String? conf,
-                    String? competition,
-                  ) {
-                    final wt = double.tryParse(_waterCtrl.text.trim());
-                    final hu = _parseHumidity(_humidCtrl.text.trim());
+                const SizedBox(height: 16),
 
-                    SwimHistoryStore().add(TrainingSession(
-                      createdAt: DateTime.now(),
-                      sessionDate: _raceDate,
-                      distance: _distance,
-                      stroke: _stroke,
-                      swimmerId: _uid,
-                      swimmerName: _userProfile?.name,
-                      competition: competition,
-                      bestTimeText: _baselineCtrl.text.trim().isEmpty ? null : _baselineCtrl.text.trim(),
-                      waterTemp: wt,
-                      humidity: hu,
-                      predictedTime: predicted,
-                      confidence: conf,
-                      isPrediction: true,
-                    ));
+                _GlassCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const _SectionTitle('Inputs'),
+                      const SizedBox(height: 10),
 
-                    _goToPerformance(
-                      PredictionTransfer(
-                        raceDate: _raceDate,
-                        distance: _distance,
-                        stroke: _stroke,
-                        baseline: _baselineCtrl.text.trim(),
-                        waterTemp: wt,
-                        humidity: hu,
-                        predictedTime: predicted,
-                        confidence: conf,
+                      if (_loadingBaseline)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: const [
+                              SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              Text('Loading your best baseline...'),
+                            ],
+                          ),
+                        )
+                      else if (_baselineSourceNote != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.info_outline,
+                                size: 16,
+                                color: Colors.black54,
+                              ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  _baselineSourceNote!,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.black54,
+                                  ),
+                                ),
+
+                              ),
+                            ],
+                          ),
+                        ),
+
+
+                      _TextField(
+                        label: 'Baseline best time',
+                        controller: _baselineCtrl,
+                        hint: 'mm:ss.ss or seconds',
+                        validator: _requiredTime,
+                        icon: Icons.timer_rounded,
                       ),
-                    );
-                  },
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _TextField(
+                              label: 'Water Temp',
+                              controller: _waterCtrl,
+                              keyboardType: TextInputType.number,
+                              validator: (v) =>
+                                  _requiredNum(v, name: 'Water temperature'),
+                              suffixText: '°C',
+                              icon: Icons.water_drop_rounded,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: _TextField(
+                              label: 'Humidity',
+                              controller: _humidCtrl,
+                              keyboardType: TextInputType.text,
+                              validator: _requiredHumidity,
+                              suffixText: '% or 40-55',
+                              icon: Icons.air_rounded,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      GradientButton(
+                        text: 'Predict',
+                        onPressed: _predicting ? null : _doPredict,
+                        colors: colors,
+                        loading: _predicting,
+                      ),
+                    ],
+                  ),
                 ),
 
-                // === Tab 3: History (with pull-to-refresh) ===
-                _HistoryTabInsidePredict(currentUserId: _uid, onRefresh: _refreshAll),
+                const SizedBox(height: 16),
+
+                if (_predicted != null)
+                  _GlassCard(
+                    borderColor: colors.last.withOpacity(.35),
+                    gradient: LinearGradient(
+                      colors: [
+                        colors.first.withOpacity(.12),
+                        colors.last.withOpacity(.08)
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const _SectionTitle('Estimated finishing time'),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(status.icon, color: status.color),
+                            const SizedBox(width: 8),
+                            Text(
+                              _predicted!,
+                              style: TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.w800,
+                                color: status.color,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text('Confidence: ${_conf ?? "—"}'),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: -6,
+                          children: [
+                            _Pill(
+                                text:
+                                    'Date: ${DateFormat('EEE, dd MMM').format(_raceDate)}',
+                                tint: colors.first),
+                            _Pill(
+                                text: 'Distance: $_distance',
+                                tint: colors.first),
+                            _Pill(text: 'Stroke: $_stroke', tint: colors.first),
+                            _StatusPill(status),
+                            if (delta != null) ...[
+                              _Pill(
+                                  text: _deltaLabel(delta),
+                                  tint: status.color),
+                              if (pct != null)
+                                _Pill(
+                                  text:
+                                      '(${(delta < 0 ? '-' : '+')}${pct.abs().toStringAsFixed(1)}%)',
+                                  tint: status.color,
+                                ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        GradientButton(
+                          text: 'Use in Performance',
+                          onPressed: _applyToPerformance,
+                          colors: colors,
+                        ),
+                      ],
+                    ),
+                  ),
+
               ],
             ),
           ),
+        ),
+
+        // === Tab 2: Training & Predict (with pull-to-refresh) ===
+        _TrainingAndPredictTabX(
+          onRefresh: _refreshAll,
+          selectedDate: _raceDate,
+          onPickDate: (d) => setState(() => _raceDate = d),
+          distance: _distance,
+          onChangeDistance: (v) => setState(() {
+            _distance = v!;
+            _refreshAutoBaseline();
+          }),
+          stroke: _stroke,
+          onChangeStroke: (v) => setState(() {
+            _stroke = v!;
+            _refreshAutoBaseline();
+          }),
+          onSaveBestTime: (bt) {
+            if ((bt ?? '').isNotEmpty) _baselineCtrl.text = bt!;
+          },
+          onSaveEnvironment: (wt, hu) {
+            _waterCtrl.text = wt?.toString() ?? '';
+            _humidCtrl.text = hu?.toString() ?? '';
+          },
+          bestTimeBaseline:
+              _baselineCtrl.text.isEmpty ? null : _baselineCtrl.text,
+          onApplyToPerformance: (predicted, conf, comp) {
+            final wt = double.tryParse(_waterCtrl.text.trim());
+            final hu = _parseHumidity(_humidCtrl.text.trim());
+            SwimHistoryStore().add(TrainingSession(
+              createdAt: DateTime.now(),
+              sessionDate: _raceDate,
+              distance: _distance,
+              stroke: _stroke,
+              swimmerId: _uid,
+              swimmerName: _userProfile?.name,
+              competition: comp,
+              bestTimeText: _baselineCtrl.text.trim(),
+              waterTemp: wt,
+              humidity: hu,
+              predictedTime: predicted,
+              confidence: conf,
+              isPrediction: true,
+            ));
+            _goToPerformance(
+              PredictionTransfer(
+                raceDate: _raceDate,
+                distance: _distance,
+                stroke: _stroke,
+                baseline: _baselineCtrl.text.trim(),
+                waterTemp: wt,
+                humidity: hu,
+                predictedTime: predicted,
+                confidence: conf,
+              ),
+            );
+          },
+        ),
+ 
+        // === Tab 3: History (with pull-to-refresh) ===
+        // ensure history tab also has safe bottom padding
+        Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom + MediaQuery.of(context).padding.bottom + 24,
+          ),
+          child: _HistoryTabInsidePredict(currentUserId: _uid, onRefresh: _refreshAll),
+        ),
+      ],
+    ),
+  ),
+),
         ),
       ),
     );
@@ -930,7 +1048,8 @@ class _PredictBestFinishingTimeScreenState extends State<PredictBestFinishingTim
 
 /// Colorful, rounded TabBar
 class _ColorfulTabBar extends StatelessWidget {
-  final TabController controller;
+  final activeBlue = const Color(0xFF0077B6);
+ final TabController controller;
   final List<Tab> tabs;
   final List<Color> accent;
 
@@ -943,39 +1062,68 @@ class _ColorfulTabBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 46,
-      padding: const EdgeInsets.all(4),
+      height: 50,
+      padding: const EdgeInsets.all(5),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.black12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFD4E4F7)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x22000000),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
       ),
       child: TabBar(
         controller: controller,
         isScrollable: true,
-        labelPadding: const EdgeInsets.symmetric(horizontal: 14),
+        labelPadding: const EdgeInsets.symmetric(horizontal: 16),
         indicatorSize: TabBarIndicatorSize.tab,
         overlayColor: MaterialStateProperty.all(Colors.transparent),
+
+        // 🌊 Swimming gradient indicator
         indicator: BoxDecoration(
-          gradient: LinearGradient(colors: accent),
+          gradient: const LinearGradient(
+            colors: [Color(0xFF00B4D8), Color(0xFF0077B6)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
           borderRadius: BorderRadius.circular(10),
-          boxShadow: [
+          boxShadow: const [
             BoxShadow(
-              color: accent.last.withOpacity(.25),
+              color: Color(0x33007BFF),
               blurRadius: 8,
-              offset: const Offset(0, 3),
+              offset: Offset(0, 3),
             ),
           ],
         ),
+
+        // 🩵 Text & icon colors
         labelColor: Colors.white,
-        unselectedLabelColor: Colors.black87,
+        unselectedLabelColor: const Color(0xFF0F172A),
         labelStyle: const TextStyle(fontWeight: FontWeight.w800),
         unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600),
-        tabs: tabs,
+
+        tabs: tabs.map((tab) {
+          final t = tab as Tab;
+          return Tab(
+            iconMargin: const EdgeInsets.only(bottom: 2),
+            icon: t.icon,
+            text: t.text,
+          );
+        }).toList(),
       ),
     );
   }
 }
+
+/// Colorful, rounded TabBar
+
+ 
+
+  
 
 /// ---- Small section title
 class _SectionTitle extends StatelessWidget {
@@ -2099,16 +2247,19 @@ class _InputFieldXState extends State<_InputFieldX> {
     final active = _hasFocus && !widget.readOnly;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      padding: const EdgeInsets.all(1.2),
       decoration: BoxDecoration(
-        gradient: active ? const LinearGradient(colors: [BrandColors.teal, BrandColors.indigo]) : null,
+        gradient: active ? const LinearGradient(colors: [BrandColors.aqua, BrandColors.indigo]) : null,
         borderRadius: BorderRadius.circular(12),
         border: active ? null : Border.all(color: BrandColors.border),
-        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 2))],
+        boxShadow: active
+            ? const [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 2))]
+            : const [BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 2))],
       ),
       child: Container(
-        decoration:
-            BoxDecoration(color: widget.readOnly ? Colors.grey.shade100 : Colors.white, borderRadius: BorderRadius.circular(11)),
+        decoration: BoxDecoration(
+          color: widget.readOnly ? Colors.grey.shade100 : Colors.white,
+          borderRadius: BorderRadius.circular(11),
+        ),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(
@@ -2164,7 +2315,7 @@ class _TapFieldX extends StatelessWidget {
                 if (icon != null) const SizedBox(width: 6),
                 Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
               ],
-            ),
+                      ),
             const SizedBox(height: 6),
             Text(value),
           ]),
@@ -2244,11 +2395,81 @@ class _DropdownFieldXState extends State<_DropdownFieldX> {
   }
 }
 
-/// ---- Color helper
-extension _ColorX on Color {
-  Color darken(double amount) {
-    final hsl = HSLColor.fromColor(this);
-    final h = hsl.hue, s = hsl.saturation, l = (hsl.lightness - amount).clamp(0.0, 1.0);
-    return HSLColor.fromAHSL(hsl.alpha, h, s, l).toColor();
+/// ---- Fetch weather automatically (Open-Meteo)
+/// ---- Fetch location-based water temperature + humidity (no hardcoding)
+/// ---- USA-friendly weather fetch: real water temp if coastal, fallback inland
+Future<Map<String, double>> fetchWeatherAuto() async {
+  try {
+    // ✅ Check location permission
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      throw Exception('Location service disabled');
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      throw Exception('Location permission denied');
+    }
+
+    // ✅ Get GPS coordinates
+    final pos = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
+    debugPrint("📍 lat=${pos.latitude}, lon=${pos.longitude}");
+
+    // 🌊 1️⃣ Try Marine API (real water + humidity if available)
+    final marineUrl =
+        "https://marine-api.open-meteo.com/v1/marine?latitude=${pos.latitude}"
+        "&longitude=${pos.longitude}"
+        "&current=water_temperature,humidity"
+        "&timezone=auto";
+    final marineRes = await http.get(Uri.parse(marineUrl));
+
+    if (marineRes.statusCode == 200) {
+      final data = jsonDecode(marineRes.body);
+      final current = data['current'] as Map<String, dynamic>? ?? {};
+      final water = (current['water_temperature'] as num?)?.toDouble();
+      final humid = (current['humidity'] as num?)?.toDouble();
+
+      if (water != null && humid != null) {
+        debugPrint(
+            "🌊 Marine API → Water ${water.toStringAsFixed(1)}°C, Humidity ${humid.toStringAsFixed(0)}%");
+        return {"temp": water, "humidity": humid};
+      }
+    }
+
+    // 🌦️ 2️⃣ Fallback: standard Open-Meteo current weather + hourly humidity
+    final url =
+        "https://api.open-meteo.com/v1/forecast?latitude=${pos.latitude}"
+        "&longitude=${pos.longitude}"
+        "&current=temperature_2m,relative_humidity_2m"
+        "&timezone=auto";
+    final res = await http.get(Uri.parse(url));
+
+    if (res.statusCode != 200) {
+      throw Exception('Fallback API failed');
+    }
+
+    final data = jsonDecode(res.body);
+    final current = data['current'] as Map<String, dynamic>?;
+
+    final airTemp = (current?['temperature_2m'] as num?)?.toDouble();
+    final humidity = (current?['relative_humidity_2m'] as num?)?.toDouble();
+    final time = current?['time'];
+
+    if (airTemp == null || humidity == null) {
+      throw Exception('Missing current weather data');
+    }
+
+    debugPrint(
+        "🌦️ Live → Air ${airTemp.toStringAsFixed(1)}°C, Humidity ${humidity.toStringAsFixed(0)}% (at $time)");
+    return {"temp": airTemp, "humidity": humidity};
+  } catch (e) {
+    debugPrint("❌ Weather fetch failed: $e");
+    // Return NaN to make it clear it failed instead of pretending with 89 %
+    return {"temp": double.nan, "humidity": double.nan};
   }
 }
