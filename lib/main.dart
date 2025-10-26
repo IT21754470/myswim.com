@@ -28,6 +28,8 @@ import 'screens/swimmer_performance_screen.dart';
 import 'screens/predict_best_finishing_time_screen.dart';
 import 'screens/swimmer_dashboard_screen.dart';
 import 'screens/analysis_results_screen.dart';
+import 'screens/analysis_detail_screen.dart';
+
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -108,6 +110,8 @@ class MyApp extends StatelessWidget {
         '/predict-best-finishing-time': (context) => const PredictBestFinishingTimeScreen(),
         '/swimmer-dashboard': (context) => const SwimmerDashboardScreen(),
         '/analysis-results': (context) => const AnalysisResultsScreen(),
+        '/analysis-detail': (context) => const AnalysisDetailScreen(),
+
       },
 
       // Fallback route (keeps the app navigable if a name is wrong)
