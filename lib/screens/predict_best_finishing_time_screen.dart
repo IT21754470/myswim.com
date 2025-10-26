@@ -384,7 +384,9 @@ class _PredictBestFinishingTimeScreenState extends State<PredictBestFinishingTim
     super.initState();
     _hydrateUser();
     _tabController = TabController(length: 3, vsync: this);
+
     _fetchWeatherAuto(); // start auto-weather fetch
+
   }
 
   @override
@@ -704,6 +706,7 @@ class _PredictBestFinishingTimeScreenState extends State<PredictBestFinishingTim
               ),
             ),
           ),
+
   // ✅ put this inside your Scaffold:
 resizeToAvoidBottomInset: true,
 
@@ -842,10 +845,12 @@ body: SafeArea(
                                     color: Colors.black54,
                                   ),
                                 ),
+
                               ),
                             ],
                           ),
                         ),
+
 
                       _TextField(
                         label: 'Baseline best time',
@@ -960,6 +965,7 @@ body: SafeArea(
                       ],
                     ),
                   ),
+
               ],
             ),
           ),
@@ -1112,6 +1118,12 @@ class _ColorfulTabBar extends StatelessWidget {
     );
   }
 }
+
+/// Colorful, rounded TabBar
+
+ 
+
+  
 
 /// ---- Small section title
 class _SectionTitle extends StatelessWidget {

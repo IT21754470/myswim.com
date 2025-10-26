@@ -4,9 +4,17 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart'; //  added
 import '../models/swim_history_store.dart';
 
-/// ===== Colors & accents by distance (swimming-themed, BLUE variant) =====
+
+/// ===== Tunable thresholds (team-specific) =====
+const double kAccHighMaxRatio     = 0.006;
+const double kAccMedHighMaxRatio  = 0.009;
+const double kAccMediumMaxRatio   = 0.013;
+
+/// ===== Colors & accents by distance =====
+
 class BrandColors {
   static const headline = Color(0xFF072A40);
 
@@ -160,9 +168,11 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
     if (pred.isNaN || pred <= 0) return (bandSec: double.nan, ratio: double.nan);
 
     final double baseFactor =
+
         (pred <= 45) ? 0.006 :
         (pred <= 90) ? 0.007 :
         (pred <= 180) ? 0.008 : 0.009;
+
 
     final hasBaseline = !_timeToSeconds(s.bestTimeText).isNaN;
     final hasWater    = s.waterTemp != null;
@@ -174,7 +184,9 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
     if (!hasHumid)    penalty *= 1.10;
 
     double band = pred * baseFactor * penalty;
+
     band = band.clamp(0.12, double.infinity);
+
 
     return (bandSec: band, ratio: band / pred);
   }
@@ -187,15 +199,8 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
     return (label: 'Low', color: const Color(0xFFEF4444));
   }
 
-  String _displayNameFor(TrainingSession s) {
-    // De-identified label: never show swimmer name or ID
-    return 'Swimmer';
-  }
-
-  String _initials(String? text) {
-    // Not used in UI anymore; kept for safety if referenced elsewhere.
-    return '—';
-  }
+  String _displayNameFor(TrainingSession s) => 'Swimmer';
+  String _initials(String? text) => '—';
 
   String _fmtBand(double bandSec) {
     if (bandSec.isNaN) return '—';
@@ -249,17 +254,41 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    // 🔒 If not signed in, show a friendly prompt (no data shown)
+    if (uid == null) {
+      return Scaffold(
+        backgroundColor: BrandColors.subtleBg,
+        appBar: AppBar(
+          title: const Text('Swimmer Dashboard'),
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+        ),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text('Sign in to see your upcoming predictions.',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+          ),
+        ),
+      );
+    }
+
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
+    // 👇 Only the current user's items
+    final myItems = _store.items.where((s) => s.swimmerId == uid);
+
     // FUTURE predictions (incl. today)
-    final upcoming = _store.items.where((r) =>
+    final upcoming = myItems.where((r) =>
         r.isPrediction &&
         (DateTime(r.sessionDate.year, r.sessionDate.month, r.sessionDate.day).isAfter(today) ||
          DateUtils.isSameDay(r.sessionDate, today)));
 
-    // ===== TODAY OVERVIEW =====
-    final todayPreds = _store.items.where(
+    // ===== TODAY OVERVIEW (mine only) =====
+    final todayPreds = myItems.where(
       (r) => r.isPrediction && DateUtils.isSameDay(r.sessionDate, today),
     );
 
@@ -284,7 +313,7 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
     }
     final swimmerAgg = aggBySwimmer.values.toList()..sort((a, b) => a.name.compareTo(b.name));
 
-    // Team averages for today
+    // Team averages for today (in this screen: effectively "my" averages)
     final allBands  = swimmerAgg.expand((a) => a.bandsSec).toList();
     final allRatios = swimmerAgg.expand((a) => a.ratios).toList();
 
@@ -299,7 +328,9 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
     final teamAcc = _accuracyFromRatio(teamAvgRatio);
 
     // Counts
+
     final eventsToday = todayPreds.map((e) => '${e.distance}|${e.stroke}').toSet().length;
+
 
     // Groups (ordered)
     final groups = _buildDateGroups(upcoming);
@@ -332,8 +363,10 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
               children: [
+
                 if (todayPreds.isNotEmpty) ...[
                   // Swimming-themed header — adjusted sizes
+
                   _TodayOverviewHeaderQuality(
                     accent: headerAccent,
                     avgText: _fmtBand(teamAvgBandSec),
@@ -341,29 +374,31 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
                     teamLabel: teamAcc.label,
                     teamRatio: teamAvgRatio,
                     events: eventsToday,
+
                   ),
                   const SizedBox(height: 16),
+
                   _SectionDivider(title: 'Upcoming predictions', accent: headerAccent),
                 ],
 
                 // Filter row
                 Padding(
-                  padding: const EdgeInsets.only(top: 8, bottom: 12),
+                  padding: const EdgeInsets.only(top: 12, bottom: 12),
                   child: _FilterBar(
                     active: _distanceFilter,
                     onChange: (v) => setState(() => _distanceFilter = v),
                   ),
                 ),
 
-                // Date groups
+                // Date groups with cards
                 for (final g in groups) ...[
                   _DateHeader(date: g.date, accent: _accentFor(g.items.first.distance)),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   for (final s in g.items) ...[
                     _buildUpcomingCard(s),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
                   ],
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 12),
                 ],
               ],
             ),
@@ -427,7 +462,7 @@ class _Agg {
   final List<double> ratios   = [];
   final Set<String> strokes   = {};
   final Set<String> distances = {};
-  final Set<String> events    = {}; // e.g. "50m Butterfly"
+  final Set<String> events    = {};
   int totalCount = 0;
   int unknownCount = 0;
 
@@ -451,13 +486,13 @@ class _SectionDivider extends StatelessWidget {
         Expanded(child: Container(height: 1, color: BrandColors.divider)),
         Container(
           margin: const EdgeInsets.symmetric(horizontal: 10),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             gradient: LinearGradient(colors: [accent.first.withOpacity(.15), accent.last.withOpacity(.12)]),
             borderRadius: BorderRadius.circular(30),
             border: Border.all(color: accent.last.withOpacity(.28)),
           ),
-          child: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+          child: Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
         ),
         Expanded(child: Container(height: 1, color: BrandColors.divider)),
       ],
@@ -465,7 +500,9 @@ class _SectionDivider extends StatelessWidget {
   }
 }
 
+
 /// ===== Today header with quality gauge (swimming-themed, adjusted sizes) =====
+
 class _TodayOverviewHeaderQuality extends StatelessWidget {
   final List<Color> accent;
   final String avgText;
@@ -497,36 +534,44 @@ class _TodayOverviewHeaderQuality extends StatelessWidget {
     final todayStr = DateFormat('EEE, dd MMM').format(DateTime.now());
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(18), // ↑ padding
       decoration: BoxDecoration(
         color: BrandColors.cardBg,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20), // ↑ radius
         border: Border.all(color: accent.last.withOpacity(.25)),
-        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4))],
+        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 12, offset: Offset(0, 6))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Title row (slightly smaller title per request)
+
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
+
                 padding: const EdgeInsets.all(9),
+
+              
+
                 decoration: BoxDecoration(
                   gradient: LinearGradient(colors: accent),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
                 ),
+
                 child: const Icon(Icons.pool_rounded, color: Colors.white),
+
               ),
-              const SizedBox(width: 10),
-              Expanded(
+              const SizedBox(width: 12),
+              const Expanded(
                 child: Text(
                   'Today prediction quality',
                   maxLines: 2,
                   softWrap: true,
                   overflow: TextOverflow.visible,
+
                   style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5),
+
                 ),
               ),
               const SizedBox(width: 8),
@@ -535,40 +580,60 @@ class _TodayOverviewHeaderQuality extends StatelessWidget {
           ),
           const SizedBox(height: 8),
 
+          Align(
+            alignment: Alignment.centerRight,
+            child: Chip(
+              label: Text(todayStr, style: const TextStyle(fontSize: 13)),
+              backgroundColor: BrandColors.subtleBg,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+
           // Average + Team badge (also slightly smaller)
           Row(
             children: [
               Text('Avg $avgText',
+
                   style: TextStyle(fontSize: 19.5, fontWeight: FontWeight.w900, color: teamColor)),
               const SizedBox(width: 8),
+
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8), // ↑ pill
                 decoration: BoxDecoration(
                   color: teamColor.withOpacity(.10),
+
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: teamColor.withOpacity(.35)),
                 ),
                 child: Text('Team: $teamLabel',
                     style: TextStyle(color: teamColor, fontWeight: FontWeight.w700, fontSize: 12)),
+
               ),
             ],
           ),
 
-          const SizedBox(height: 10),
+          const SizedBox(height: 14),
 
-          // Quality gauge bar
+          // Quality gauge bar (larger)
           LayoutBuilder(
             builder: (context, c) {
-              final pos = _qualityPos(teamRatio) * (c.maxWidth - 20);
+              final pos = _qualityPos(teamRatio) * (c.maxWidth - 24);
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Stack(
                     children: [
                       Container(
+
                         height: 9,
+
+                       
+
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(10),
                           gradient: const LinearGradient(
                             colors: [Color(0xFFEF4444), Color(0xFFF59E0B), Color(0xFF22C55E)],
                           ),
@@ -576,24 +641,28 @@ class _TodayOverviewHeaderQuality extends StatelessWidget {
                       ),
                       Positioned(
                         left: pos,
-                        top: -2,
+                        top: -3,
                         child: Container(
+
                           width: 4,
                           height: 13,
+
+                       
+
                           decoration: BoxDecoration(
                             color: teamColor,
-                            borderRadius: BorderRadius.circular(2),
+                            borderRadius: BorderRadius.circular(3),
                           ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 8),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: const [
-                      Text('Low', style: TextStyle(fontSize: 11, color: Colors.black54)),
-                      Text('High', style: TextStyle(fontSize: 11, color: Colors.black54)),
+                      Text('Low', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                      Text('High', style: TextStyle(fontSize: 12, color: Colors.black54)),
                     ],
                   ),
                 ],
@@ -601,7 +670,8 @@ class _TodayOverviewHeaderQuality extends StatelessWidget {
             },
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
+
 
           // Only one KPI left (Events) — swimmer & predictions removed
           Row(
@@ -613,6 +683,8 @@ class _TodayOverviewHeaderQuality extends StatelessWidget {
                   value: '', // value is set by parent via text below
                 ),
               ),
+
+
             ],
           ),
 
@@ -639,14 +711,15 @@ class _KpiTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14), // ↑ padding
       decoration: BoxDecoration(
         color: BrandColors.subtleBg,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: BrandColors.divider),
       ),
       child: Row(
         children: [
+
           Icon(icon, size: 18, color: Colors.blueGrey.shade700),
           const SizedBox(width: 8),
           Expanded(
@@ -660,6 +733,7 @@ class _KpiTile extends StatelessWidget {
           ),
           if (value.isNotEmpty)
             Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+
         ],
       ),
     );
@@ -831,14 +905,16 @@ class _UpcomingCard extends StatelessWidget {
                     ),
                     Wrap(spacing: 8, children: [
                       _chip(dateStr),
+
                       _chipWithIcon(Icons.hourglass_bottom_rounded, timeLeftText, Colors.blue),
                     ]),
+
                   ],
                 ),
 
                 const SizedBox(height: 10),
 
-                // Details row (de-identified: no swimmer fields)
+                // Details row
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                   decoration: BoxDecoration(

@@ -700,7 +700,9 @@ class PerformanceChartCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+
     // NOTE: We intentionally do NOT render the dates row anymore.
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -708,6 +710,7 @@ class PerformanceChartCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 2))],
       ),
+
       child: SizedBox(
         height: height,
         child: CustomPaint(
@@ -720,6 +723,7 @@ class PerformanceChartCard extends StatelessWidget {
             overlayLabel: overlayLabel,
             showValueLabels: showValueLabels,
             valueLabelForPoint: valueLabelForPoint,
+
           ),
         ),
       ),
@@ -820,7 +824,9 @@ class _SimpleChartPainter extends CustomPainter {
             text: overlayLabel!,
             style: TextStyle(color: endColor.withOpacity(0.7), fontSize: 10),
           ),
+
           //textDirection: TextDirection.ltr, // ✅ optional
+
         )..layout();
         tp.paint(canvas, Offset(pad + w - tp.width, y - tp.height - 2));
       }
@@ -855,7 +861,9 @@ class _SimpleChartPainter extends CustomPainter {
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
+
           //textDirection: TextDirection.ltr, // ✅ optional
+
           maxLines: 1,
         )..layout();
 
