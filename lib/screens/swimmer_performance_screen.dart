@@ -1,14 +1,11 @@
-// lib/screens/swimmer_performance_screen.dart
 // ignore_for_file: unused_shown_name, unnecessary_import, prefer_const_declarations, deprecated_member_use
 
-import 'dart:ui' show FontFeature, TextDirection; // TextDirection needed for TextPainter
+import 'dart:ui' show FontFeature, TextDirection; // Needed for TextPainter
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // 👈 added
 
-// Use the predictor screen and its transfer payload
 import 'predict_best_finishing_time_screen.dart' as predict;
-
-// Pull real data from your in-memory history store
 import '../models/swim_history_store.dart';
 
 /// ===== Brand palette (more colorful) =====
@@ -32,7 +29,6 @@ class BrandColors {
   static const tile4End   = Color(0xFF0EA5E9);
 }
 
-/// Picks vibrant gradient pairs per selection
 class BrandTheme {
   static List<Color> accentFor(String distance, String stroke) {
     switch (distance) {
@@ -45,7 +41,7 @@ class BrandTheme {
   }
 }
 
-/// ===== Time helpers (robust) =====
+/// ===== Time helpers =====
 double _timeStrToSeconds(String s) {
   final t = s.trim();
   if (t.isEmpty || t == '—') return double.nan;
@@ -83,10 +79,8 @@ class SwimmerPerformanceScreen extends StatefulWidget {
 class _SwimmerPerformanceScreenState extends State<SwimmerPerformanceScreen> {
   int _index = 1;
 
-  // NOTE: we still hold a working selection for filtering,
-  // but we do NOT render distance/stroke/confidence on the Today card.
-  DateTime selectedDate = DateTime.now();       // anchored by prediction date you pick
-  String selectedDistance = '100m';             // used for filters/charts
+  DateTime selectedDate = DateTime.now();
+  String selectedDistance = '100m';
   String selectedStroke   = 'Freestyle';
 
   String? bestTimeBaseline;
@@ -99,7 +93,7 @@ class _SwimmerPerformanceScreenState extends State<SwimmerPerformanceScreen> {
     );
     if (res != null) {
       setState(() {
-        selectedDate     = res.raceDate;   // anchor charts here
+        selectedDate     = res.raceDate;
         selectedDistance = res.distance;
         selectedStroke   = res.stroke;
         bestTimeBaseline = res.baseline;
@@ -111,6 +105,32 @@ class _SwimmerPerformanceScreenState extends State<SwimmerPerformanceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    // 🔒 If not signed in, don't show any history
+    if (uid == null) {
+      return Scaffold(
+        backgroundColor: BrandColors.background,
+        appBar: AppBar(
+          elevation: 0,
+          backgroundColor: Colors.transparent,
+          flexibleSpace: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(colors: [BrandColors.headerStart, BrandColors.headerEnd]),
+            ),
+          ),
+          title: const Text('Swimmer Performance', style: TextStyle(color: Colors.white)),
+          iconTheme: const IconThemeData(color: Colors.white),
+        ),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text('Sign in to view your performance.', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+          ),
+        ),
+      );
+    }
+
     final name = (widget.userName ?? '').trim().isNotEmpty ? widget.userName!.trim() : 'Swimmer';
     final headerGrad = const LinearGradient(colors: [BrandColors.headerStart, BrandColors.headerEnd]);
 
@@ -147,7 +167,7 @@ class _SwimmerPerformanceScreenState extends State<SwimmerPerformanceScreen> {
             baseline: bestTimeBaseline,
             envWater: lastWaterTemp,
             envHumidity: lastHumidity,
-            anchorDate: selectedDate, // << anchor around chosen race date
+            anchorDate: selectedDate,
           ),
         ],
       ),
@@ -162,12 +182,7 @@ class _SwimmerPerformanceScreenState extends State<SwimmerPerformanceScreen> {
           BottomNavigationBarItem(icon: Icon(Icons.home), label: ''),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openPredict,
-        icon: const Icon(Icons.speed),
-        label: const Text('Predict'),
-        backgroundColor: Colors.indigo,
-      ),
+      // ⛔ FAB intentionally omitted
     );
   }
 }
@@ -175,10 +190,11 @@ class _SwimmerPerformanceScreenState extends State<SwimmerPerformanceScreen> {
 class _ProfilePlaceholder extends StatelessWidget {
   const _ProfilePlaceholder();
   @override
-  Widget build(BuildContext context) => const Center(child: Text('Profile', style: TextStyle(color: BrandColors.headline, fontSize: 16)));
+  Widget build(BuildContext context) =>
+      const Center(child: Text('Profile', style: TextStyle(color: BrandColors.headline, fontSize: 16)));
 }
 
-/// ===== OVERVIEW (History-driven Past + History-driven Upcoming) =====
+/// ===== OVERVIEW =====
 class _OverviewTab extends StatefulWidget {
   final String distance;
   final String stroke;
@@ -207,16 +223,15 @@ class _OverviewTab extends StatefulWidget {
 class _OverviewTabState extends State<_OverviewTab> {
   bool _loading = false;
 
-  // Today (anchored)
   DateTime? _todayDate;
-  double? _todayPoint;   // null means "no saved prediction for today"
-  // We deliberately do not show confidence/distance/stroke on the today card per request.
+  double? _todayPoint;
 
-  // Past & upcoming (history-driven)
   List<double> _pastPoints = const [];
   List<DateTime> _pastDates = const [];
   List<double> _upcomingPoints = const [];
   List<DateTime> _upcomingDates = const [];
+
+  double? _bestEver; // best predicted time across history for this distance/stroke
 
   @override
   void initState() {
@@ -253,98 +268,112 @@ class _OverviewTabState extends State<_OverviewTab> {
   Future<void> _rebuild() async {
     setState(() => _loading = true);
 
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    // If no user, clear everything quickly
+    if (uid == null) {
+      setState(() {
+        _todayDate = _ymd(widget.anchorDate ?? DateTime.now());
+        _todayPoint = null;
+        _pastDates = List.generate(7, (i) => _todayDate!.subtract(Duration(days: 7 - i)));
+        _pastPoints = List.filled(7, double.nan);
+        _upcomingDates = List.generate(7, (i) => _todayDate!.add(Duration(days: i + 1)));
+        _upcomingPoints = List.filled(7, double.nan);
+        _bestEver = null;
+        _loading = false;
+      });
+      return;
+    }
+
     final anchor = widget.anchorDate ?? DateTime.now();
     final startOfAnchor = _ymd(anchor);
 
-    final history = List<TrainingSession>.from(SwimHistoryStore().items)
+    // 👇 STRICT: use only this user's items
+    final allMine = SwimHistoryStore()
+        .items
+        .where((s) => s.swimmerId == uid)
+        .toList()
       ..sort((a, b) => a.sessionDate.compareTo(b.sessionDate));
 
-    // ===== “Today” (anchored) – ONLY from history predictions. No local fallback.
+    // Filter to this distance/stroke & predictions
+    final filtered = allMine.where((s) =>
+      s.isPrediction && s.distance == widget.distance && s.stroke == widget.stroke).toList();
+
+    // Best Ever across history for this distance/stroke (mine only)
+    final allTimes = filtered
+        .map((s) => _timeStrToSeconds(s.predictedTime ?? ''))
+        .where((v) => !v.isNaN && !v.isInfinite)
+        .toList();
+    _bestEver = allTimes.isNotEmpty ? allTimes.reduce((a, b) => a < b ? a : b) : null;
+
+    // Today (anchored)
     _todayDate = startOfAnchor;
-    double? todaySec;
-
-    final todays = history.where((s) {
-      if (s.distance != widget.distance || s.stroke != widget.stroke) return false;
-      final d = _ymd(s.sessionDate);
-      return d == startOfAnchor && s.isPrediction;
-    }).toList();
-
+    _todayPoint = null;
+    final todays = filtered.where((s) => _ymd(s.sessionDate) == startOfAnchor).toList();
     if (todays.isNotEmpty) {
       todays.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      final pred = todays.first.predictedTime ?? '';
-      final s = _timeStrToSeconds(pred);
-      if (!s.isNaN && !s.isInfinite) todaySec = s;
+      final v = _timeStrToSeconds(todays.first.predictedTime ?? '');
+      if (!v.isNaN && !v.isInfinite) _todayPoint = v;
     }
-    _todayPoint = todaySec; // stays null if nothing saved for today
 
-    // ===== PAST: last 7 calendar days, PREDICTIONS ONLY =====
-    final Map<DateTime, _DayBest> pastPerDay = {};
-    final pastStart = startOfAnchor.subtract(const Duration(days: 7)); // [anchor-7, anchor)
-
-    for (final s in history) {
-      if (!s.isPrediction) continue;
-      if (s.distance != widget.distance || s.stroke != widget.stroke) continue;
-      final d = _ymd(s.sessionDate);
-      if (d.isBefore(pastStart) || !d.isBefore(startOfAnchor)) continue;
-
-      final secs = _timeStrToSeconds(s.predictedTime ?? '');
-      if (secs.isNaN || secs.isInfinite) continue;
-
-      final cur = pastPerDay[d];
-      if (cur == null || s.createdAt.isAfter(cur.createdAt)) {
-        pastPerDay[d] = _DayBest(seconds: secs, isPrediction: true, createdAt: s.createdAt);
+    // Past 7 calendar days: anchor-7 .. anchor-1
+    final pastStart = startOfAnchor.subtract(const Duration(days: 7));
+    final pastDates = List.generate(7, (i) => pastStart.add(Duration(days: i)));
+    final pastPts = <double>[];
+    for (final day in pastDates) {
+      final m = filtered.where((s) => _ymd(s.sessionDate) == day);
+      if (m.isNotEmpty) {
+        final latest = m.reduce((a, b) => a.createdAt.isAfter(b.createdAt) ? a : b);
+        pastPts.add(_timeStrToSeconds(latest.predictedTime ?? ''));
+      } else {
+        pastPts.add(double.nan);
       }
     }
-    final pastEntries = pastPerDay.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
-    final pastDates = pastEntries.map((e) => e.key).toList();
-    final pastPts   = pastEntries.map((e) => e.value.seconds).toList();
 
-    // ===== UPCOMING: next 14 calendar days, PREDICTIONS ONLY =====
-    final Map<DateTime, _DayBest> futurePerDay = {};
-    final futureEnd = startOfAnchor.add(const Duration(days: 14)); // (anchor, anchor+14]
-
-    for (final s in history) {
-      if (!s.isPrediction) continue;
-      if (s.distance != widget.distance || s.stroke != widget.stroke) continue;
-      final d = _ymd(s.sessionDate);
-      if (!d.isAfter(startOfAnchor) || d.isAfter(futureEnd)) continue;
-
-      final secs = _timeStrToSeconds(s.predictedTime ?? '');
-      if (secs.isNaN || secs.isInfinite) continue;
-
-      final cur = futurePerDay[d];
-      if (cur == null || s.createdAt.isAfter(cur.createdAt)) {
-        futurePerDay[d] = _DayBest(seconds: secs, isPrediction: true, createdAt: s.createdAt);
+    // Upcoming 7 days: anchor+1 .. anchor+7
+    final upcDates = List.generate(7, (i) => startOfAnchor.add(Duration(days: i + 1)));
+    final upcPts = <double>[];
+    for (final d in upcDates) {
+      final m = filtered.where((s) => _ymd(s.sessionDate) == d);
+      if (m.isNotEmpty) {
+        final latest = m.reduce((a, b) => a.createdAt.isAfter(b.createdAt) ? a : b);
+        upcPts.add(_timeStrToSeconds(latest.predictedTime ?? ''));
+      } else {
+        upcPts.add(double.nan);
       }
     }
-    final futureEntries = futurePerDay.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
-    final upcomingDates = futureEntries.map((e) => e.key).toList();
-    final futurePts     = futureEntries.map((e) => e.value.seconds).toList();
 
     if (!mounted) return;
     setState(() {
       _pastDates = pastDates;
       _pastPoints = pastPts;
-      _upcomingDates = upcomingDates;
-      _upcomingPoints = futurePts;
+      _upcomingDates = upcDates;
+      _upcomingPoints = upcPts;
       _loading = false;
     });
   }
 
-  String _chartDateLabel(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
+  String _chartDateLabel(DateTime d) => DateFormat('MM-dd').format(d);
   String _listDateLabel(DateTime d)  => DateFormat('EEE, dd MMM').format(d);
 
   @override
   Widget build(BuildContext context) {
     final accent = BrandTheme.accentFor(widget.distance, widget.stroke);
 
-    final pastStats = _Stats.fromPoints(_pastPoints);
-    final upcStats  = _Stats.fromPoints(_upcomingPoints);
+    final pastClean = _pastPoints.where((v) => !v.isNaN && !v.isInfinite).toList();
+    final pastStats = _Stats.fromPoints(pastClean);
+    final upcStats  = _Stats.fromPoints(_upcomingPoints.where((v) => !v.isNaN && !v.isInfinite).toList());
+
+    final double firstValidUpcoming = _upcomingPoints.firstWhere(
+      (v) => !(v.isNaN || v.isInfinite),
+      orElse: () => double.nan,
+    );
+    final bool hasNext = !(firstValidUpcoming.isNaN || firstValidUpcoming.isInfinite);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
-        // selectors (kept; influence charts/filters only)
+        // selectors
         Row(
           children: [
             Expanded(
@@ -352,7 +381,7 @@ class _OverviewTabState extends State<_OverviewTab> {
                 label: 'Distance',
                 value: widget.distance,
                 items: const ['50m', '100m', '200m', '400m'],
-                onChanged: (v) => setState(() => widget.onChangeDistance(v)),
+                onChanged: (v) => widget.onChangeDistance(v),
               ),
             ),
             const SizedBox(width: 8),
@@ -361,7 +390,7 @@ class _OverviewTabState extends State<_OverviewTab> {
                 label: 'Stroke',
                 value: widget.stroke,
                 items: const ['Freestyle', 'Backstroke', 'Breaststroke', 'Butterfly'],
-                onChanged: (v) => setState(() => widget.onChangeStroke(v)),
+                onChanged: (v) => widget.onChangeStroke(v),
               ),
             ),
           ],
@@ -369,7 +398,7 @@ class _OverviewTabState extends State<_OverviewTab> {
 
         const SizedBox(height: 16),
 
-        // ===== Today’s performance (HISTORY ONLY; no local model) =====
+        // Today
         _loading
             ? const _TodaySkeleton()
             : (_todayPoint == null)
@@ -388,10 +417,9 @@ class _OverviewTabState extends State<_OverviewTab> {
 
         const SizedBox(height: 16),
 
-        // ===== Past 7 days (predictions only) =====
+        // Past 7 days
         _SectionHeader(text: 'Past 7 days (predictions)', colors: accent),
         const SizedBox(height: 8),
-
         _loading
             ? const _ChartSkeleton()
             : PerformanceChartCard(
@@ -399,21 +427,35 @@ class _OverviewTabState extends State<_OverviewTab> {
                 points: _pastPoints,
                 labelForDay: _chartDateLabel,
                 colors: accent,
-                avgSeconds: pastStats.avg,
+                avgSeconds: pastStats.avg, // overlay = average of past
                 highlightIndex: pastStats.minIndex,
                 overlayLabel: pastStats.avg == null ? null : 'Avg ${_secondsToTimeStr(pastStats.avg!)}',
+                showValueLabels: false,
               ),
         if (!_loading) ...[
           const SizedBox(height: 8),
-          _AnalysisBar(stats: pastStats, title: 'Last ${_pastDates.length} predicted days', accent: accent),
+          _AnalysisBar(
+            stats: pastStats,
+            title: 'Last ${_pastDates.length} days',
+            accent: accent,
+            bestEverSeconds: _bestEver,
+          ),
+          // 👇 Row-by-row list for Past 7 days
+          const SizedBox(height: 8),
+          PerformanceListCard(
+            dates: _pastDates,
+            points: _pastPoints,
+            dateLabelFor: _listDateLabel,
+            timeHeader: 'Predicted',
+            colors: accent,
+          ),
         ],
 
         const SizedBox(height: 20),
 
-        // ===== Upcoming 14 days (predictions only) =====
-        _SectionHeader(text: 'Upcoming 14 days (saved predictions)', colors: accent),
+        // Upcoming 7 days — BEST line + value labels
+        _SectionHeader(text: 'Upcoming 7 days (saved predictions)', colors: accent),
         const SizedBox(height: 8),
-
         _loading
             ? const _ChartSkeleton()
             : PerformanceChartCard(
@@ -421,44 +463,36 @@ class _OverviewTabState extends State<_OverviewTab> {
                 points: _upcomingPoints,
                 labelForDay: _chartDateLabel,
                 colors: accent,
-                avgSeconds: upcStats.avg,
+                // Use overlay to show BEST line (not avg) on the upcoming chart
+                avgSeconds: _bestEver,
                 highlightIndex: upcStats.minIndex,
-                overlayLabel: upcStats.avg == null ? null : 'Avg ${_secondsToTimeStr(upcStats.avg!)}',
+                overlayLabel: (_bestEver == null) ? null : 'Best ${_secondsToTimeStr(_bestEver!)}',
+                showValueLabels: true,
+                valueLabelForPoint: (v) => _secondsToTimeStr(v),
               ),
         if (!_loading) ...[
           const SizedBox(height: 8),
-          _AnalysisBar(stats: upcStats, title: 'Next ${_upcomingDates.length} predicted days', accent: accent, isFuture: true),
-        ],
-
-        // LISTS
-        const SizedBox(height: 12),
-        if (!_loading)
-          PerformanceListCard(
-            dates: _pastDates,
-            points: _pastPoints,
-            dateLabelFor: _listDateLabel,
-            timeHeader: 'Predicted time',
-            colors: accent,
+          _AnalysisBar(
+            stats: upcStats,
+            title: 'Next ${_upcomingDates.length} days',
+            accent: accent,
+            isFuture: true,
+            predictedSeconds: hasNext ? firstValidUpcoming : null,
+            bestEverSeconds: _bestEver,
           ),
-        const SizedBox(height: 12),
-        if (!_loading)
+          // 👇 Row-by-row list for Upcoming 7 days
+          const SizedBox(height: 8),
           PerformanceListCard(
             dates: _upcomingDates,
             points: _upcomingPoints,
             dateLabelFor: _listDateLabel,
-            timeHeader: 'Predicted time',
+            timeHeader: 'Predicted',
             colors: accent,
           ),
+        ],
       ],
     );
   }
-}
-
-class _DayBest {
-  final double seconds;
-  final bool isPrediction;
-  final DateTime createdAt;
-  _DayBest({required this.seconds, required this.isPrediction, required this.createdAt});
 }
 
 /// Simple stats/calcs for analysis bars
@@ -499,7 +533,7 @@ class _Stats {
   }
 }
 
-/// ===== Today Performance Card (no distance/stroke/confidence chips) =====
+/// ===== Today Performance Card =====
 class TodayPerformanceCard extends StatelessWidget {
   final DateTime date;
   final String timeText;
@@ -607,7 +641,7 @@ class _TodaySkeleton extends StatelessWidget {
   }
 }
 
-/// ===== Small colorful section header =====
+/// ===== Section header =====
 class _SectionHeader extends StatelessWidget {
   final String text;
   final List<Color> colors;
@@ -638,10 +672,17 @@ class PerformanceChartCard extends StatelessWidget {
   final String Function(DateTime) labelForDay;
   final List<Color> colors;
 
-  // Analysis overlays
-  final double? avgSeconds;
+  // Analysis overlays (generic)
+  final double? avgSeconds;     // used as overlay line value (avg OR best, depending where used)
   final int? highlightIndex;
   final String? overlayLabel;
+
+  // Optional value labels on points
+  final bool showValueLabels;
+  final String Function(double)? valueLabelForPoint;
+
+  // Height control
+  final double height;
 
   const PerformanceChartCard({
     super.key,
@@ -652,13 +693,14 @@ class PerformanceChartCard extends StatelessWidget {
     this.avgSeconds,
     this.highlightIndex,
     this.overlayLabel,
+    this.showValueLabels = false,
+    this.valueLabelForPoint,
+    this.height = 140,
   });
 
   @override
   Widget build(BuildContext context) {
-    final n = dates.length;
-    final safePoints = points.length == n ? points : List<double>.filled(n, 0);
-
+    // NOTE: We intentionally do NOT render the dates row anymore.
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -666,42 +708,37 @@ class PerformanceChartCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 2))],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            height: 120,
-            child: CustomPaint(
-              painter: _SimpleChartPainter(
-                points: safePoints,
-                startColor: colors.first,
-                endColor: colors.last,
-                avgSeconds: avgSeconds,
-                highlightIndex: highlightIndex,
-                overlayLabel: overlayLabel,
-              ),
-            ),
+      child: SizedBox(
+        height: height,
+        child: CustomPaint(
+          painter: _SimpleChartPainter(
+            points: points,
+            startColor: colors.first,
+            endColor: colors.last,
+            avgSeconds: avgSeconds,
+            highlightIndex: highlightIndex,
+            overlayLabel: overlayLabel,
+            showValueLabels: showValueLabels,
+            valueLabelForPoint: valueLabelForPoint,
           ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: List.generate(n, (i) => Text(labelForDay(dates[i]), style: const TextStyle(fontSize: 11))),
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
-/// Painter for a simple line chart with gradient + soft area + average line + fastest marker
+/// Painter for line chart with NaN-safe rendering + overlay line + value labels
 class _SimpleChartPainter extends CustomPainter {
   final List<double> points;
   final Color startColor;
   final Color endColor;
 
-  final double? avgSeconds;
+  final double? avgSeconds; // generic overlay value (avg or best)
   final int? highlightIndex;
   final String? overlayLabel;
+
+  final bool showValueLabels;
+  final String Function(double)? valueLabelForPoint;
 
   _SimpleChartPainter({
     required this.points,
@@ -710,76 +747,66 @@ class _SimpleChartPainter extends CustomPainter {
     this.avgSeconds,
     this.highlightIndex,
     this.overlayLabel,
+    this.showValueLabels = false,
+    this.valueLabelForPoint,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Card bg
-    final bg = Paint()..color = const Color(0xFFF2F6FA);
-    final border = Paint()
-      ..color = const Color(0xFFE0E6ED)
-      ..style = PaintingStyle.stroke;
-    final rrect = RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(12));
-    canvas.drawRRect(rrect, bg);
-    canvas.drawRRect(rrect, border);
-
     if (points.isEmpty) return;
 
-    final cleaned = points.map((p) => (p.isNaN || p.isInfinite) ? points.first : p).toList();
+    // Compute min/max on valid values only
+    final validVals = points.where((p) => !(p.isNaN || p.isInfinite)).toList();
+    if (validVals.isEmpty) return;
 
     const pad = 12.0;
     final w = size.width - pad * 2;
     final h = size.height - pad * 2;
     final origin = Offset(pad, pad + h);
 
-    double minVal = cleaned.reduce((a, b) => a < b ? a : b);
-    double maxVal = cleaned.reduce((a, b) => a > b ? a : b);
+    double minVal = validVals.reduce((a, b) => a < b ? a : b);
+    double maxVal = validVals.reduce((a, b) => a > b ? a : b);
     if (minVal == maxVal) { minVal -= 0.5; maxVal += 0.5; }
-    final span = (maxVal - minVal);
-    final stepX = cleaned.length > 1 ? w / (cleaned.length - 1) : 0;
+    final span = maxVal - minVal;
+    final stepX = points.length > 1 ? w / (points.length - 1) : 0;
 
     double yFor(double value) {
       final norm = 1 - ((value - minVal) / span);
       return origin.dy - norm * h;
     }
 
-    final lineGradient = LinearGradient(colors: [startColor, endColor]);
-    final fillGradient = LinearGradient(colors: [startColor.withOpacity(0.18), endColor.withOpacity(0.05)]);
-
-    final line = Paint()
-      ..shader = lineGradient.createShader(Rect.fromLTWH(0, 0, size.width, size.height))
+    // Build segments (skip NaNs)
+    final linePaint = Paint()
+      ..shader = LinearGradient(colors: [startColor, endColor]).createShader(Rect.fromLTWH(0, 0, size.width, size.height))
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
-    final fill = Paint()
-      ..shader = fillGradient.createShader(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..style = PaintingStyle.fill;
+    Path? segPath;
 
-    final path = Path();
-    final fillPath = Path();
-
-    for (int i = 0; i < cleaned.length; i++) {
+    for (int i = 0; i < points.length; i++) {
       final x = origin.dx + i * stepX;
-      final y = yFor(cleaned[i]);
-      if (i == 0) {
-        path.moveTo(x, y);
-        fillPath.moveTo(x, origin.dy);
-        fillPath.lineTo(x, y);
+      final v = points[i];
+      if (v.isNaN || v.isInfinite) {
+        if (segPath != null) {
+          canvas.drawPath(segPath, linePaint);
+          segPath = null;
+        }
+        continue;
+      }
+      final y = yFor(v);
+      if (segPath == null) {
+        segPath = Path()..moveTo(x, y);
       } else {
-        path.lineTo(x, y);
-        fillPath.lineTo(x, y);
+        segPath.lineTo(x, y);
       }
     }
-    fillPath.lineTo(origin.dx + (cleaned.length - 1) * stepX, origin.dy);
-    fillPath.close();
+    if (segPath != null) {
+      canvas.drawPath(segPath, linePaint);
+    }
 
-    // Draw area then line
-    canvas.drawPath(fillPath, fill);
-    canvas.drawPath(path, line);
-
-    // Average line overlay
-    if (avgSeconds != null) {
+    // Overlay line (avg or best)
+    if (avgSeconds != null && !(avgSeconds!.isNaN || avgSeconds!.isInfinite)) {
       final y = yFor(avgSeconds!);
       final avgPaint = Paint()
         ..color = endColor.withOpacity(0.35)
@@ -793,7 +820,7 @@ class _SimpleChartPainter extends CustomPainter {
             text: overlayLabel!,
             style: TextStyle(color: endColor.withOpacity(0.7), fontSize: 10),
           ),
-        //textDirection: TextDirection.ltr, // ✅ keep to avoid null textDirection issues
+          //textDirection: TextDirection.ltr, // ✅ optional
         )..layout();
         tp.paint(canvas, Offset(pad + w - tp.width, y - tp.height - 2));
       }
@@ -802,10 +829,40 @@ class _SimpleChartPainter extends CustomPainter {
     // Dots
     final dot = Paint()..color = endColor..style = PaintingStyle.fill;
     final dotHighlight = Paint()..color = endColor.withOpacity(0.9)..style = PaintingStyle.fill;
-    for (int i = 0; i < cleaned.length; i++) {
+    for (int i = 0; i < points.length; i++) {
+      final v = points[i];
+      if (v.isNaN || v.isInfinite) continue;
       final x = origin.dx + i * stepX;
-      final y = yFor(cleaned[i]);
+      final y = yFor(v);
       canvas.drawCircle(Offset(x, y), (highlightIndex == i ? 4.2 : 3.0), highlightIndex == i ? dotHighlight : dot);
+    }
+
+    // Value labels above each valid point
+    if (showValueLabels && valueLabelForPoint != null) {
+      for (int i = 0; i < points.length; i++) {
+        final v = points[i];
+        if (v.isNaN || v.isInfinite) continue;
+        final x = origin.dx + i * stepX;
+        final y = yFor(v);
+
+        final label = valueLabelForPoint!(v);
+        final tp = TextPainter(
+          text: TextSpan(
+            text: label,
+            style: TextStyle(
+              fontSize: 10,
+              color: endColor.withOpacity(0.85),
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          //textDirection: TextDirection.ltr, // ✅ optional
+          maxLines: 1,
+        )..layout();
+
+        final dx = (x - tp.width / 2).clamp(pad, pad + w - tp.width);
+        final dy = (y - tp.height - 6).clamp(pad, pad + h - tp.height);
+        tp.paint(canvas, Offset(dx as double, dy as double));
+      }
     }
   }
 
@@ -814,6 +871,7 @@ class _SimpleChartPainter extends CustomPainter {
     if (old.points.length != points.length) return true;
     if (old.startColor != startColor || old.endColor != endColor) return true;
     if (old.avgSeconds != avgSeconds || old.highlightIndex != highlightIndex || old.overlayLabel != overlayLabel) return true;
+    if (old.showValueLabels != showValueLabels) return true;
     for (int i = 0; i < points.length; i++) {
       if (old.points[i] != points[i]) return true;
     }
@@ -845,7 +903,18 @@ class _AnalysisBar extends StatelessWidget {
   final List<Color> accent;
   final bool isFuture;
 
-  const _AnalysisBar({required this.stats, required this.title, required this.accent, this.isFuture = false});
+  /// Optional chips
+  final double? predictedSeconds; // nearest upcoming valid point
+  final double? bestEverSeconds;
+
+  const _AnalysisBar({
+    required this.stats,
+    required this.title,
+    required this.accent,
+    this.isFuture = false,
+    this.predictedSeconds,
+    this.bestEverSeconds,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -881,6 +950,18 @@ class _AnalysisBar extends StatelessWidget {
                   backgroundColor: arrowColor.withOpacity(.10),
                   side: BorderSide(color: arrowColor.withOpacity(.35)),
                 ),
+                if (bestEverSeconds != null)
+                  Chip(
+                    label: Text('Best Ever: ${_secondsToTimeStr(bestEverSeconds!)}'),
+                    backgroundColor: Colors.indigo.withOpacity(.08),
+                    side: BorderSide(color: Colors.indigo.withOpacity(.35)),
+                  ),
+                if (predictedSeconds != null && !(predictedSeconds!.isNaN || predictedSeconds!.isInfinite))
+                  Chip(
+                    label: Text('Predicted: ${_secondsToTimeStr(predictedSeconds!)}'),
+                    backgroundColor: Colors.deepPurple.withOpacity(.08),
+                    side: BorderSide(color: Colors.deepPurple.withOpacity(.35)),
+                  ),
               ],
             ),
           ),
@@ -890,7 +971,7 @@ class _AnalysisBar extends StatelessWidget {
   }
 }
 
-/// ===== Reusable LIST card (date + time) =====
+/// ===== Reusable LIST card =====
 class PerformanceListCard extends StatelessWidget {
   final List<DateTime> dates;
   final List<double> points;
@@ -910,7 +991,7 @@ class PerformanceListCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final n = dates.length;
-    final safePoints = points.length == n ? points : List<double>.filled(n, 0);
+    final safePoints = points.length == n ? points : List<double>.filled(n, double.nan);
 
     return Container(
       padding: const EdgeInsets.all(0),
@@ -945,7 +1026,8 @@ class PerformanceListCard extends StatelessWidget {
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (_, i) {
               final dateStr = dateLabelFor(dates[i]);
-              final timeStr = _secondsToTimeStr(safePoints[i]);
+              final seconds = safePoints[i];
+              final timeStr = (seconds.isNaN || seconds.isInfinite) ? '—' : _secondsToTimeStr(seconds);
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 12),
                 child: Row(
@@ -971,7 +1053,7 @@ class PerformanceListCard extends StatelessWidget {
   }
 }
 
-/// ===== Small UI blocks =====
+/// ===== Dropdown with label container =====
 class _ChipDropdown<T> extends StatelessWidget {
   final String label;
   final T value;
@@ -987,9 +1069,8 @@ class _ChipDropdown<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Fallback if value isn’t in items (prevents DropdownButton crash)
-    final T effectiveValue =
-        (items.contains(value) ? value : (items.isNotEmpty ? items.first : value));
+    // Fallback if value isn’t in items (prevents Dropdown crash)
+    final T effectiveValue = (items.contains(value) ? value : (items.isNotEmpty ? items.first : value));
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),

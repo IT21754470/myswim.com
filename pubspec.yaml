@@ -7,24 +7,14 @@ environment:
   sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
-  
-
-
-
   flutter:
     sdk: flutter
-     # UI
-  
-  # Network
-  http: ^1.1.0  # 🆕 Add this for backend communication
-  
-  # Date formatting
-  
-   
-    
-  # Use older Firebase versions that work with NDK 25
- 
 
+  # Networking
+  http: ^1.2.0
+
+  # Location (to auto-fill water temp & humidity)
+  geolocator: ^12.0.0
 
   # Firebase & Auth
   firebase_core: ^2.20.0
@@ -35,17 +25,14 @@ dependencies:
   # Google Sign-In
   google_sign_in: ^6.1.5
 
-  # Networking (⬅️ add this)
-
-
-  # Utility
+  # Utilities
   intl: ^0.19.0
   image_picker: ^1.0.4
   shared_preferences: ^2.5.3
- 
+
   # UI
   cupertino_icons: ^1.0.6
-  fl_chart: ^0.64.0 # ✅ Added for chart rendering
+  fl_chart: ^0.64.0
 
 dev_dependencies:
   flutter_test:
@@ -54,8 +41,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-
   assets:
     - assets/images/
-    # You can also add specific files like:
-    # - assets/images/logo.jpg

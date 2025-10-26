@@ -6,36 +6,40 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/swim_history_store.dart';
 
-/// ===== Tunable thresholds (team-specific) =====
-/// The accuracy "ratio" is bandSec / predictedTime.
-/// Lower ratio => higher confidence.
-///
-/// Example defaults:
-///   High      : 0.0  .. 0.006  (<= 0.6%)
-///   Med-High  : 0.006.. 0.009  (<= 0.9%)
-///   Medium    : 0.009.. 0.013  (<= 1.3%)
-///   Low       : > 0.013
-const double kAccHighMaxRatio     = 0.006;
-const double kAccMedHighMaxRatio  = 0.009;
-const double kAccMediumMaxRatio   = 0.013;
-
-/// ===== Colors & accents by distance =====
+/// ===== Colors & accents by distance (swimming-themed, BLUE variant) =====
 class BrandColors {
-  static const headline = Color(0xFF0F172A);
+  static const headline = Color(0xFF072A40);
 
-  static const tile1Start = Color(0xFF00B4D8);
-  static const tile1End   = Color(0xFF0077B6);
-  static const tile2Start = Color(0xFFFF7A59);
-  static const tile2End   = Color(0xFFF4A261);
-  static const tile3Start = Color(0xFF6D28D9);
-  static const tile3End   = Color(0xFF8B5CF6);
-  static const tile4Start = Color(0xFF14B8A6);
-  static const tile4End   = Color(0xFF0EA5E9);
+  // Primary ocean palette (blue family)
+  static const aqua    = Color(0xFF38BDF8); // light aqua blue
+  static const sea     = Color(0xFF0EA5E9); // sky/sea blue
+  static const deep    = Color(0xFF0369A1); // deep ocean blue
+  static const teal    = Color(0xFF0284C7); // blue-leaning teal
+  static const coral   = Color(0xFF2563EB); // repurposed: vivid blue
+  static const amber   = Color(0xFF3B82F6); // repurposed: bright blue
+  static const violet  = Color(0xFF1D4ED8); // repurposed: strong indigo/blue
 
-  static const chipBg   = Color(0xFFF7FAFF);
-  static const cardBg   = Colors.white;
+  // Distance tiles (now all blue gradients)
+  static const tile1Start = aqua;                 // 50m — light aqua
+  static const tile1End   = sea;                  // → sea blue
+  static const tile2Start = coral;                // 100m — vivid blue
+  static const tile2End   = Color(0xFF60A5FA);    // soft blue end
+  static const tile3Start = violet;               // 200m — indigo/blue
+  static const tile3End   = Color(0xFF93C5FD);    // pale blue end
+  static const tile4Start = teal;                 // 400m — blue teal
+  static const tile4End   = Color(0xFF38BDF8);    // aqua end
+
+  // Surfaces & subtle UI tokens
+  static const chipBg   = Color(0xFFF1FAFF);
+  static const cardBg   = Color(0xFFFFFFFF);
   static const divider  = Color(0xFFE6EEF6);
-  static const subtleBg = Color(0xFFF9FBFE);
+  static const subtleBg = Color(0xFFF7FBFF);
+  static const muted    = Color(0xFF64748B);
+
+  // Semantic helpers (kept as is)
+  static const success  = Color(0xFF16A34A);
+  static const warning  = Color(0xFFF59E0B);
+  static const danger   = Color(0xFFEF4444);
 }
 
 List<Color> _accentFor(String distance) {
@@ -150,19 +154,16 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
     }
   }
 
-  /// === Dynamic accuracy band derived from predicted time (prediction-aware, no hardcoded seconds) ===
+  /// === Dynamic accuracy band derived from predicted time ===
   ({double bandSec, double ratio}) _bandForSession(TrainingSession s) {
     final pred = _timeToSeconds(s.predictedTime);
     if (pred.isNaN || pred <= 0) return (bandSec: double.nan, ratio: double.nan);
 
-    // Base relative uncertainty by event length (tighter for sprints, looser for long events)
     final double baseFactor =
-        (pred <= 45)  ? 0.006 :   // ~0.6% for sub-45s (e.g., 50m)
-        (pred <= 90)  ? 0.007 :   // ~0.7% for 45–90s (e.g., 100m)
-        (pred <= 180) ? 0.008 :   // ~0.8% for 90–180s (e.g., 200m)
-                         0.009;   // ~0.9% for >180s (e.g., 400m)
+        (pred <= 45) ? 0.006 :
+        (pred <= 90) ? 0.007 :
+        (pred <= 180) ? 0.008 : 0.009;
 
-    // Data quality penalties (same as before)
     final hasBaseline = !_timeToSeconds(s.bestTimeText).isNaN;
     final hasWater    = s.waterTemp != null;
     final hasHumid    = s.humidity  != null;
@@ -172,33 +173,17 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
     if (!hasWater)    penalty *= 1.10;
     if (!hasHumid)    penalty *= 1.10;
 
-    // Raw band from model
     double band = pred * baseFactor * penalty;
-
-    // --- Dynamic floor & cap (scale with predicted time) ---
-    // Floor: avoid unrealistically tiny bands; Cap: avoid runaway bands.
-    // Ratios ensure both scale naturally with pred.
-    final double floorRatio =
-        (pred <= 45)  ? 0.0035 :   // 0.35% for sprints
-        (pred <= 90)  ? 0.0040 :
-        (pred <= 180) ? 0.0050 :
-                        0.0060;    // 0.6% for long events
-
-    const double capRatio = 0.02;  // 2% global cap to keep UI tidy
-
-    final double minBand = pred * floorRatio;
-    final double maxBand = pred * capRatio;
-
-    band = band.clamp(minBand, maxBand);
+    band = band.clamp(0.12, double.infinity);
 
     return (bandSec: band, ratio: band / pred);
   }
 
   ({String label, Color color}) _accuracyFromRatio(double ratio) {
     if (ratio.isNaN) return (label: 'Unknown', color: Colors.grey);
-    if (ratio <= kAccHighMaxRatio)    return (label: 'High',     color: const Color(0xFF16A34A));
-    if (ratio <= kAccMedHighMaxRatio) return (label: 'Med-High', color: const Color(0xFF22C55E));
-    if (ratio <= kAccMediumMaxRatio)  return (label: 'Medium',   color: const Color(0xFFF59E0B));
+    if (ratio <= 0.006) return (label: 'High',      color: const Color(0xFF16A34A));
+    if (ratio <= 0.009) return (label: 'Med-High',  color: const Color(0xFF22C55E));
+    if (ratio <= 0.013) return (label: 'Medium',    color: const Color(0xFFF59E0B));
     return (label: 'Low', color: const Color(0xFFEF4444));
   }
 
@@ -285,7 +270,6 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
       final (bandSec: band, ratio: ratio) = _bandForSession(p);
 
       aggBySwimmer.putIfAbsent(key, () => _Agg(name: dispName));
-      // collect per-swimmer events (distance + stroke)
       aggBySwimmer[key]!.strokes.add(p.stroke);
       aggBySwimmer[key]!.distances.add(p.distance);
       aggBySwimmer[key]!.events.add('${p.distance} ${p.stroke}');
@@ -315,9 +299,7 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
     final teamAcc = _accuracyFromRatio(teamAvgRatio);
 
     // Counts
-    final swimmersToday    = swimmerAgg.length;
-    final predictionsToday = todayPreds.length;
-    final eventsToday      = todayPreds.map((e) => '${e.distance}|${e.stroke}').toSet().length;
+    final eventsToday = todayPreds.map((e) => '${e.distance}|${e.stroke}').toSet().length;
 
     // Groups (ordered)
     final groups = _buildDateGroups(upcoming);
@@ -350,22 +332,15 @@ class _SwimmerDashboardScreenState extends State<SwimmerDashboardScreen> {
           : ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
               children: [
-                if (predictionsToday > 0) ...[
+                if (todayPreds.isNotEmpty) ...[
+                  // Swimming-themed header — adjusted sizes
                   _TodayOverviewHeaderQuality(
                     accent: headerAccent,
                     avgText: _fmtBand(teamAvgBandSec),
                     teamColor: teamAcc.color,
                     teamLabel: teamAcc.label,
                     teamRatio: teamAvgRatio,
-                    swimmers: swimmersToday,
                     events: eventsToday,
-                    predictions: predictionsToday,
-                  ),
-                  const SizedBox(height: 12),
-                  _TodayGrid(
-                    items: swimmerAgg,
-                    accuracyFromRatio: _accuracyFromRatio,
-                    fmtBand: _fmtBand,
                   ),
                   const SizedBox(height: 16),
                   _SectionDivider(title: 'Upcoming predictions', accent: headerAccent),
@@ -450,7 +425,6 @@ class _Agg {
   final String name;
   final List<double> bandsSec = [];
   final List<double> ratios   = [];
-  // per-swimmer overview
   final Set<String> strokes   = {};
   final Set<String> distances = {};
   final Set<String> events    = {}; // e.g. "50m Butterfly"
@@ -491,16 +465,16 @@ class _SectionDivider extends StatelessWidget {
   }
 }
 
-/// ===== Today header with quality gauge (no truncation) =====
+/// ===== Today header with quality gauge (swimming-themed, adjusted sizes) =====
 class _TodayOverviewHeaderQuality extends StatelessWidget {
   final List<Color> accent;
   final String avgText;
   final Color teamColor;
   final String teamLabel;
   final double teamRatio; // band/pred ratio
-  final int swimmers;
+
+  // Only Events left (swimmer & prediction tabs removed)
   final int events;
-  final int predictions;
 
   const _TodayOverviewHeaderQuality({
     super.key,
@@ -509,17 +483,13 @@ class _TodayOverviewHeaderQuality extends StatelessWidget {
     required this.teamColor,
     required this.teamLabel,
     required this.teamRatio,
-    required this.swimmers,
     required this.events,
-    required this.predictions,
   });
 
   double _qualityPos(double r) {
     if (r.isNaN) return .5;
-    // Map typical ratios (0.004..0.02+) to 0..1
     final clamped = r.clamp(0.004, 0.02);
     return ((clamped - 0.004) / (0.02 - 0.004)).toDouble();
-    // If you customize thresholds heavily, you can map using your constants instead.
   }
 
   @override
@@ -537,17 +507,17 @@ class _TodayOverviewHeaderQuality extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Title row (always readable)
+          // Title row (slightly smaller title per request)
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(9),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(colors: accent),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(Icons.trending_up_rounded, color: Colors.white),
+                child: const Icon(Icons.pool_rounded, color: Colors.white),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -556,33 +526,30 @@ class _TodayOverviewHeaderQuality extends StatelessWidget {
                   maxLines: 2,
                   softWrap: true,
                   overflow: TextOverflow.visible,
-                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5),
                 ),
               ),
+              const SizedBox(width: 8),
+              Chip(label: Text(todayStr), backgroundColor: BrandColors.chipBg),
             ],
-          ),
-          const SizedBox(height: 6),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Chip(label: Text(todayStr), backgroundColor: BrandColors.subtleBg),
           ),
           const SizedBox(height: 8),
 
-          // Average + Team badge
+          // Average + Team badge (also slightly smaller)
           Row(
             children: [
               Text('Avg $avgText',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: teamColor)),
+                  style: TextStyle(fontSize: 19.5, fontWeight: FontWeight.w900, color: teamColor)),
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
                   color: teamColor.withOpacity(.10),
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: teamColor.withOpacity(.35)),
                 ),
                 child: Text('Team: $teamLabel',
-                    style: TextStyle(color: teamColor, fontWeight: FontWeight.w700)),
+                    style: TextStyle(color: teamColor, fontWeight: FontWeight.w700, fontSize: 12)),
               ),
             ],
           ),
@@ -599,7 +566,7 @@ class _TodayOverviewHeaderQuality extends StatelessWidget {
                   Stack(
                     children: [
                       Container(
-                        height: 10,
+                        height: 9,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(8),
                           gradient: const LinearGradient(
@@ -612,7 +579,7 @@ class _TodayOverviewHeaderQuality extends StatelessWidget {
                         top: -2,
                         child: Container(
                           width: 4,
-                          height: 14,
+                          height: 13,
                           decoration: BoxDecoration(
                             color: teamColor,
                             borderRadius: BorderRadius.circular(2),
@@ -636,15 +603,26 @@ class _TodayOverviewHeaderQuality extends StatelessWidget {
 
           const SizedBox(height: 12),
 
-          // KPIs (always readable)
+          // Only one KPI left (Events) — swimmer & predictions removed
           Row(
-            children: [
-              Expanded(child: _KpiTile(icon: Icons.groups_2_rounded, label: 'Swimmers', value: '$swimmers')),
-              const SizedBox(width: 8),
-              Expanded(child: _KpiTile(icon: Icons.flag_rounded, label: 'Events', value: '$events')),
-              const SizedBox(width: 8),
-              Expanded(child: _KpiTile(icon: Icons.timeline_rounded, label: 'Predictions', value: '$predictions')),
+            children: const [
+              Expanded(
+                child: _KpiTile(
+                  icon: Icons.flag_rounded,
+                  label: 'Events',
+                  value: '', // value is set by parent via text below
+                ),
+              ),
             ],
+          ),
+
+          // Small text to show the actual events count clearly
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '$events total today',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
           ),
         ],
       ),
@@ -667,137 +645,23 @@ class _KpiTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: BrandColors.divider),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Icon(icon, size: 18, color: Colors.blueGrey.shade700),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 2,
-                  softWrap: true,
-                  overflow: TextOverflow.visible,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ],
+          Icon(icon, size: 18, color: Colors.blueGrey.shade700),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 2,
+              softWrap: true,
+              overflow: TextOverflow.visible,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
           ),
-          const SizedBox(height: 6),
-          Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+          if (value.isNotEmpty)
+            Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
         ],
       ),
-    );
-  }
-}
-
-class _TodayGrid extends StatelessWidget {
-  final List<_Agg> items;
-  final ({String label, Color color}) Function(double ratio) accuracyFromRatio;
-  final String Function(double band) fmtBand;
-  const _TodayGrid({
-    super.key,
-    required this.items,
-    required this.accuracyFromRatio,
-    required this.fmtBand,
-  });
-
-  int _eventOrder(String e) {
-    // e.g. "50m Butterfly"
-    final d = e.split(' ').first;
-    return _distanceOrder[d] ?? 99;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (items.isEmpty) return const SizedBox.shrink();
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: items.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        // Taller to fit event tags
-        mainAxisExtent: 138,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-      ),
-      itemBuilder: (context, i) {
-        final a = items[i];
-        final acc = accuracyFromRatio(a.avgRatio);
-        final bandText = fmtBand(a.avgBandSec);
-
-        final ev = a.events.toList()..sort((x, y) => _eventOrder(x).compareTo(_eventOrder(y)));
-        final show = ev.take(3).toList();
-        final more = ev.length - show.length;
-
-        return Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: BrandColors.cardBg,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: acc.color.withOpacity(.22)),
-            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4))],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  CircleAvatar(
-                    radius: 20,
-                    backgroundColor: acc.color.withOpacity(.12),
-                    child: Icon(Icons.person, color: acc.color, size: 18),
-                  ),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text('Swimmer',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontWeight: FontWeight.w800)),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              // Accuracy row
-              Text('$bandText · ${acc.label}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: acc.color, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              // Event tags (distance + stroke)
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  for (final e in show) _eventTag(e),
-                  if (more > 0) _eventTag('+$more more'),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _eventTag(String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: BrandColors.subtleBg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: BrandColors.divider),
-      ),
-      child: Text(text, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
     );
   }
 }
@@ -871,11 +735,11 @@ class _FilterBar extends StatelessWidget {
         return ChoiceChip(
           selected: selected,
           label: Text(e),
-          selectedColor: Colors.teal.withOpacity(.15),
+          selectedColor: Colors.blue.withOpacity(.15),
           backgroundColor: BrandColors.cardBg,
-          side: BorderSide(color: selected ? Colors.teal.shade300 : BrandColors.divider),
+          side: BorderSide(color: selected ? Colors.blue.shade300 : BrandColors.divider),
           labelStyle: TextStyle(
-            color: selected ? Colors.teal.shade800 : Colors.black87,
+            color: selected ? Colors.blue.shade800 : Colors.black87,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
           ),
           onSelected: (_) => onChange(e),
@@ -967,7 +831,7 @@ class _UpcomingCard extends StatelessWidget {
                     ),
                     Wrap(spacing: 8, children: [
                       _chip(dateStr),
-                      _chipWithIcon(Icons.hourglass_bottom_rounded, timeLeftText, Colors.teal),
+                      _chipWithIcon(Icons.hourglass_bottom_rounded, timeLeftText, Colors.blue),
                     ]),
                   ],
                 ),
@@ -1047,9 +911,9 @@ class _UpcomingCard extends StatelessWidget {
                     ),
                     if ((s.competition ?? '').isNotEmpty)
                       Chip(
-                        avatar: const Icon(Icons.emoji_events_outlined, size: 16, color: Colors.orange),
+                        avatar: const Icon(Icons.emoji_events_outlined, size: 16, color: Colors.blue),
                         label: Text(s.competition!, overflow: TextOverflow.ellipsis),
-                        backgroundColor: Colors.orange.withOpacity(.10),
+                        backgroundColor: Colors.blue.withOpacity(.10),
                       ),
                     Chip(
                       avatar: const Icon(Icons.insights_rounded, size: 16, color: Colors.indigo),
