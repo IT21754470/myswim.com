@@ -23,6 +23,8 @@ import 'screens/turn_start_analysis_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/TrainingSessionsScreen.dart';
+import 'screens/subscription_screen.dart';
+
 
 // New screens
 import 'screens/swimmer_performance_screen.dart';
@@ -112,6 +114,7 @@ class MyApp extends StatelessWidget {
         '/predict-best-finishing-time': (context) => const PredictBestFinishingTimeScreen(),
         '/swimmer-dashboard': (context) => const SwimmerDashboardScreen(),
         '/analysis-results': (context) => const AnalysisResultsScreen(),
+        '/subscription': (context) => const SubscriptionScreen(),
       },
 
       // Fallback route (keeps the app navigable if a name is wrong)
