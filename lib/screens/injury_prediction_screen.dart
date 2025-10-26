@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 
 class InjuryPredictionScreen extends StatefulWidget {
   static const routeName = '/injury-prediction';
@@ -22,6 +23,16 @@ class _InjuryPredictionScreenState extends State<InjuryPredictionScreen> {
   VideoPlayerController? _controller;
   File? _videoFile;
   bool _isAnalyzing = false;
+
+  List<AnalysisSummary> _recent = [];
+  bool _recentLoading = false;
+  String? _recentError;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadRecent();
+  }
 
   @override
   void dispose() {
@@ -88,6 +99,34 @@ class _InjuryPredictionScreenState extends State<InjuryPredictionScreen> {
   }
 }
 
+Future<void> _loadRecent() async {
+  setState(() {
+    _recentLoading = true;
+    _recentError = null;
+  });
+  try {
+    final uri = Uri.parse('$kApiBase/db/recent?limit=20');
+    final resp = await http.get(uri).timeout(const Duration(seconds: 60));
+    if (resp.statusCode != 200) {
+      throw Exception('HTTP ${resp.statusCode}');
+    }
+    final List<dynamic> arr = jsonDecode(resp.body) as List<dynamic>;
+    final items = arr
+        .map((e) => AnalysisSummary.fromJson(e as Map<String, dynamic>))
+        .toList();
+
+    // (Backend should already be newest-first; keep a defensive sort)
+    items.sort((a, b) =>
+        (b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+            .compareTo(a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)));
+
+    setState(() => _recent = items);
+  } catch (e) {
+    setState(() => _recentError = e.toString());
+  } finally {
+    if (mounted) setState(() => _recentLoading = false);
+  }
+}
 
   @override
   Widget build(BuildContext context) {
@@ -154,6 +193,84 @@ class _InjuryPredictionScreenState extends State<InjuryPredictionScreen> {
             '<uses-permission android:name="android.permission.INTERNET"/>',
             style: TextStyle(color: cs.onSurfaceVariant),
           ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text('Tips for best accuracy', style: TextStyle(fontWeight: FontWeight.w600)),
+                  SizedBox(height: 8),
+                  const _TipRow('Capture full body in frame.'),
+                  const _TipRow('Good lighting; avoid heavy reflections.'),
+                  const _TipRow('Keep one swimmer in frame'),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+Card(
+  child: Padding(
+    padding: const EdgeInsets.all(12),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.history),
+            const SizedBox(width: 8),
+            Text('Recent analyses', style: Theme.of(context).textTheme.titleMedium),
+            const Spacer(),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Refresh',
+              onPressed: _recentLoading ? null : _loadRecent,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+
+        if (_recentLoading)
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (_recentError != null)
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text('Failed to load: $_recentError'),
+          )
+        else if (_recent.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('No results yet. Analyze a video to see it here.'),
+          )
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _recent.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, i) {
+              final item = _recent[i];
+              return _RecentResultTile(
+                item: item,
+                onTap: () {
+                  Navigator.pushNamed(
+                    context,
+                    '/analysis-detail',
+                    arguments: item.id,
+                  );
+                },
+              );
+            },
+          ),
+      ],
+    ),
+  ),
+),
         ],
       ),
     );
@@ -183,5 +300,82 @@ class _EmptyPreview extends StatelessWidget {
     );
   }
 }
+
+class _TipRow extends StatelessWidget {
+  final String tip;
+  const _TipRow(this.tip);
+ 
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.check_circle_rounded, size: 20, color: cs.primary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            tip,
+            style: TextStyle(
+              color: cs.onSurface, // ← FORCE VISIBLE TEXT COLOR
+              height: 1.3,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class AnalysisSummary {
+  final int id;
+  final DateTime? createdAt;
+  final double? prob;
+  final String? decision;
+  final String? topJoint;
+
+  AnalysisSummary({
+    required this.id,
+    this.createdAt,
+    this.prob,
+    this.decision,
+    this.topJoint,
+  });
+
+  factory AnalysisSummary.fromJson(Map<String, dynamic> j) {
+    return AnalysisSummary(
+      id: j['id'] as int,
+      createdAt: j['created_at'] != null ? DateTime.tryParse(j['created_at']) : null,
+      prob: (j['prob'] == null) ? null : (j['prob'] as num).toDouble(),
+      decision: j['decision'] as String?,
+      topJoint: j['top_joint'] as String?,
+    );
+  }
+}
+
+class _RecentResultTile extends StatelessWidget {
+  final AnalysisSummary item;
+  final VoidCallback onTap;
+  const _RecentResultTile({required this.item, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final dt = (item.createdAt != null)
+        ? DateFormat('y-MM-dd • HH:mm').format(item.createdAt!.toLocal())
+        : '—';
+    final pct = (item.prob != null) ? '${(item.prob! * 100).toStringAsFixed(1)}%' : '—';
+    final joint = item.topJoint ?? '—';
+
+    return ListTile(
+      title: Text(dt),
+      subtitle: Text('Risk: $pct   •   Top joint: $joint'),
+      trailing: Icon(Icons.chevron_right, color: cs.onSurfaceVariant),
+      onTap: onTap,
+    );
+  }
+}
+
+
 
 
