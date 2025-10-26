@@ -56,7 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
             isLoadingStats = false;
           });
           
-          print('✅ HomeScreen stats loaded: $sessionCount sessions, ${totalDistance}km');
+          print('✅ HomeScreen stats loaded: $sessionCount sessions, ${totalDistance}km, ${totalHours} hours');
         } else {
           // Create default profile if none exists
           final user = FirebaseAuth.instance.currentUser;

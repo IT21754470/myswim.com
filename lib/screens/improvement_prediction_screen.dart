@@ -4,7 +4,17 @@ import '../widgets/enhanced_improvement_prediction_card.dart';
 import '../widgets/improvement_trend_chart.dart';
 import '../services/improvement_prediction_service.dart';
 import '../models/improvement_prediction.dart';
-
+class Recommendation {
+  final String text;
+  final IconData icon;
+  final String priority; // 'high', 'medium', 'normal'
+  
+  Recommendation({
+    required this.text,
+    required this.icon,
+    this.priority = 'normal',
+  });
+}
 class ImprovementPredictionScreen extends StatefulWidget {
   const ImprovementPredictionScreen({super.key});
 
@@ -20,6 +30,7 @@ class _ImprovementPredictionScreenState extends State<ImprovementPredictionScree
   Map<String, List<ImprovementPrediction>> _historicalPredictions = {};
   Map<String, List<ImprovementPrediction>> _futurePredictions = {};
   int _daysToPredict = 7;
+  
   String? _errorMessage;
   
   late TabController _tabController;
@@ -77,7 +88,8 @@ class _ImprovementPredictionScreenState extends State<ImprovementPredictionScree
 
     setState(() {
       _historicalPredictions = response.historicalPredictions;
-      _futurePredictions = response.futurePredictions;
+      // Use helper that reads _daysToPredict from state; remove extra argument.
+      _futurePredictions = _getNextFutureDays(response);
     });
 
     if (_historicalPredictions.isEmpty && _futurePredictions.isEmpty) {
@@ -96,7 +108,6 @@ class _ImprovementPredictionScreenState extends State<ImprovementPredictionScree
     });
   }
 }
-
   Widget _buildHeader() {
     return Container(
       padding: const EdgeInsets.only(top: 50, left: 20, right: 20, bottom: 20),
@@ -455,8 +466,9 @@ class _ImprovementPredictionScreenState extends State<ImprovementPredictionScree
       ),
     );
   }
-
-  Widget _buildRecommendationsCard() {
+ Widget _buildRecommendationsCard() {
+    final recommendations = _generateDynamicRecommendations();
+    
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -483,57 +495,259 @@ class _ImprovementPredictionScreenState extends State<ImprovementPredictionScree
             ],
           ),
           const SizedBox(height: 16),
-          _buildRecommendationItem(
-            'Focus on maintaining consistent training intensity',
-            Icons.fitness_center,
-          ),
-          _buildRecommendationItem(
-            'Monitor heart rate during high-intensity sessions',
-            Icons.favorite,
-          ),
-          _buildRecommendationItem(
-            'Ensure adequate rest between training sessions',
-            Icons.hotel,
-          ),
+          if (recommendations.isEmpty)
+            const Text('Not enough data for recommendations')
+          else
+            ...recommendations.map((rec) => _buildRecommendationItem(
+              rec.text,
+              rec.icon,
+              priority: rec.priority,
+            )),
         ],
       ),
     );
   }
 
-  Widget _buildRecommendationItem(String text, IconData icon) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+  Widget _buildRecommendationItem(String text, IconData icon, {String priority = 'normal'}) {
+    Color iconColor;
+    Color bgColor;
+    
+    switch (priority) {
+      case 'high':
+        iconColor = Colors.red[700]!;
+        bgColor = Colors.red[50]!;
+        break;
+      case 'medium':
+        iconColor = Colors.amber[700]!;
+        bgColor = Colors.amber[50]!;
+        break;
+      default:
+        iconColor = Colors.green[700]!;
+        bgColor = Colors.green[50]!;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(8),
+      ),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: Colors.amber[700]),
+          Icon(icon, size: 20, color: iconColor),
           const SizedBox(width: 12),
-          Expanded(child: Text(text)),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 14),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildErrorState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.error_outline, size: 64, color: Colors.red),
-          const SizedBox(height: 16),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Text(
-              _errorMessage ?? 'An error occurred',
-              textAlign: TextAlign.center,
-            ),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _loadPredictions,
-            child: const Text('Retry'),
-          ),
-        ],
-      ),
-    );
+  List<Recommendation> _generateDynamicRecommendations() {
+    final recommendations = <Recommendation>[];
+    
+    // Collect all predictions
+    final allPredictions = <ImprovementPrediction>[];
+    _futurePredictions.forEach((date, preds) => allPredictions.addAll(preds));
+    _historicalPredictions.forEach((date, preds) => allPredictions.addAll(preds));
+    
+    if (allPredictions.isEmpty) {
+      return recommendations;
+    }
+
+    // 1. Analyze overall trend
+    final avgImprovement = allPredictions
+        .map((p) => p.improvement)
+        .reduce((a, b) => a + b) / allPredictions.length;
+    
+    final decliningCount = allPredictions.where((p) => p.improvement < -0.1).length;
+    final improvingCount = allPredictions.where((p) => p.improvement > 0.1).length;
+    
+    if (decliningCount > improvingCount) {
+      recommendations.add(Recommendation(
+        text: 'Performance is trending downward. Consider reviewing your training plan and recovery schedule.',
+        icon: Icons.trending_down,
+        priority: 'high',
+      ));
+    } else if (improvingCount > decliningCount) {
+      recommendations.add(Recommendation(
+        text: 'Great progress! Keep up your current training routine.',
+        icon: Icons.trending_up,
+        priority: 'normal',
+      ));
+    }
+
+    // 2. Analyze most common factors
+    final factorCount = <String, int>{};
+    for (var pred in allPredictions) {
+      for (var factor in pred.topFactors) {
+        factorCount[factor] = (factorCount[factor] ?? 0) + 1;
+      }
+    }
+    
+    final topFactors = factorCount.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    
+    // 3. Generate recommendations based on top factors
+    if (topFactors.isNotEmpty) {
+      final topFactor = topFactors.first.key.toLowerCase();
+      
+      if (topFactor.contains('intensity')) {
+        final lowIntensityCount = allPredictions
+            .where((p) => p.reasons.any((r) => r.toLowerCase().contains('low') && r.toLowerCase().contains('intensity')))
+            .length;
+        
+        if (lowIntensityCount > allPredictions.length / 2) {
+          recommendations.add(Recommendation(
+            text: 'Training intensity is frequently low. Consider increasing workout intensity gradually.',
+            icon: Icons.fitness_center,
+            priority: 'high',
+          ));
+        }
+      }
+      
+      if (topFactor.contains('heart') || topFactor.contains('hr')) {
+        recommendations.add(Recommendation(
+          text: 'Heart rate is a key factor. Monitor your HR zones and ensure proper warm-up.',
+          icon: Icons.favorite,
+          priority: 'medium',
+        ));
+      }
+      
+      if (topFactor.contains('pace')) {
+        final fastPaceCount = allPredictions
+            .where((p) => p.reasons.any((r) => r.toLowerCase().contains('fast') && r.toLowerCase().contains('pace')))
+            .length;
+        
+        if (fastPaceCount > allPredictions.length / 3) {
+          recommendations.add(Recommendation(
+            text: 'Your pace is often fast. Consider mixing in some slower, technique-focused sessions.',
+            icon: Icons.speed,
+            priority: 'medium',
+          ));
+        }
+      }
+      
+      if (topFactor.contains('distance') || topFactor.contains('volume')) {
+        final lowVolumeCount = allPredictions
+            .where((p) => p.reasons.any((r) => r.toLowerCase().contains('low') && (r.toLowerCase().contains('distance') || r.toLowerCase().contains('volume'))))
+            .length;
+        
+        if (lowVolumeCount > allPredictions.length / 3) {
+          recommendations.add(Recommendation(
+            text: 'Training volume is often low. Gradually increase your total distance.',
+            icon: Icons.straighten,
+            priority: 'medium',
+          ));
+        }
+      }
+      
+      if (topFactor.contains('session') || topFactor.contains('duration')) {
+        final shortSessionCount = allPredictions
+            .where((p) => p.reasons.any((r) => r.toLowerCase().contains('short') && r.toLowerCase().contains('session')))
+            .length;
+        
+        if (shortSessionCount > allPredictions.length / 3) {
+          recommendations.add(Recommendation(
+            text: 'Sessions are often short. Try extending your training duration for better results.',
+            icon: Icons.access_time,
+            priority: 'medium',
+          ));
+        }
+      }
+      
+      if (topFactor.contains('rest')) {
+        recommendations.add(Recommendation(
+          text: 'Rest intervals impact your performance. Optimize recovery time between sets.',
+          icon: Icons.hotel,
+          priority: 'medium',
+        ));
+      }
+    }
+
+    // 4. Stroke-specific recommendations
+    final strokePerformance = <String, double>{};
+    for (var pred in allPredictions) {
+      strokePerformance[pred.stroke] = (strokePerformance[pred.stroke] ?? 0) + pred.improvement;
+    }
+    
+    if (strokePerformance.isNotEmpty) {
+      final worstStroke = strokePerformance.entries
+          .reduce((a, b) => a.value < b.value ? a : b);
+      
+      if (worstStroke.value < -0.5) {
+        recommendations.add(Recommendation(
+          text: '${worstStroke.key} needs attention. Focus on technique drills for this stroke.',
+          icon: Icons.pool,
+          priority: 'high',
+        ));
+      }
+    }
+
+    // 5. General health recommendations
+    if (allPredictions.any((p) => p.reasons.any((r) => r.toLowerCase().contains('elevated') && r.toLowerCase().contains('heart')))) {
+      recommendations.add(Recommendation(
+        text: 'Elevated heart rate detected. Ensure adequate warm-up and cool-down.',
+        icon: Icons.favorite_border,
+        priority: 'medium',
+      ));
+    }
+
+    // 6. Recovery recommendation if performance declining
+    if (avgImprovement < -0.2) {
+      recommendations.add(Recommendation(
+        text: 'Consider taking a rest day. Recovery is crucial for performance improvement.',
+        icon: Icons.bed,
+        priority: 'high',
+      ));
+    }
+
+    // Limit to top 5 recommendations
+    return recommendations.take(5).toList();
   }
+
+// Return only the next N future days from the response, using the current _daysToPredict
+Map<String, List<ImprovementPrediction>> _getNextFutureDays(
+  ImprovementPredictionResponse response,
+) {
+  final days = _daysToPredict;
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+
+  // Get only future dates (after today)
+  final futureDates = Map.fromEntries(
+    response.futurePredictions.entries.where((entry) {
+      final predictionDate = DateTime.parse(entry.key);
+      return predictionDate.isAfter(today);
+    }),
+  );
+
+  // Sort dates and take the requested number of days
+  final sortedDates = futureDates.keys.toList()..sort();
+  final nextDates = sortedDates.take(days).toList();
+
+  print('🔮 Filtered ${nextDates.length} future days from ${response.futurePredictions.length} total dates');
+
+  return Map.fromEntries(
+    nextDates.map((date) => MapEntry(date, futureDates[date]!)),
+  );
+}}
+
+_buildErrorState() {
+  return Center(
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.error, color: Colors.red, size: 64),
+        SizedBox(height: 16),
+        Text('An error occurred while fetching predictions.',
+            style: TextStyle(fontSize: 18)),
+      ],
+    ),
+  );
 }

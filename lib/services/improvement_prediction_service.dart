@@ -83,125 +83,156 @@ class ImprovementPredictionService {
     print('📱 Using offline prediction');
     return _generateOfflinePrediction(history, daysToPredict);
   }
+Future<ImprovementPredictionResponse> _getBackendPrediction(
+  List<TrainingSession> trainingHistory,
+  int daysToPredict,
+) async {
+  print('🌐 Calling backend API: $baseUrl$predictEndpoint');
+  
+  final tomorrow = DateTime.now().add(Duration(days: 1));
+  
+  // ✅ Request extra buffer to ensure we get enough future days
+  final actualDaysToRequest = daysToPredict + 15; // Increased buffer
+  
+  final requestBody = {
+    'history': trainingHistory.map((session) => {
+      'Date': session.date.toIso8601String().split('T')[0],
+      'Swimmer ID': session.swimmerId,
+      'pool length': session.poolLength,
+      'Stroke Type': session.strokeType,
+      'Training Distance ': session.trainingDistance,
+      'Session Duration (hrs)': session.sessionDuration,
+      'pace per 100m': session.pacePer100m,
+      'laps': session.laps,
+      'avg heart rate': session.avgHeartRate ?? 130,
+      'Intensity': session.intensity ?? 0.7,
+      'rest interval': session.restInterval ?? 3.0,
+    }).toList(),
+    'days': actualDaysToRequest,
+    'start_date': tomorrow.toIso8601String().split('T')[0],
+  };
 
-  Future<ImprovementPredictionResponse> _getBackendPrediction(
-    List<TrainingSession> trainingHistory,
-    int daysToPredict,
-  ) async {
-    print('🌐 Calling backend API: $baseUrl$predictEndpoint');
-    
-    final requestBody = {
-      'history': trainingHistory.map((session) => {
-        'Date': session.date.toIso8601String().split('T')[0],
-        'Swimmer ID': session.swimmerId,
-        'pool length': session.poolLength,
-        'Stroke Type': session.strokeType,
-        'Training Distance ': session.trainingDistance,
-        'Session Duration (hrs)': session.sessionDuration,
-        'pace per 100m': session.pacePer100m,
-        'laps': session.laps,
-        'avg heart rate': session.avgHeartRate ?? 130,
-        'Intensity': session.intensity ?? 0.7,
-        'rest interval': session.restInterval ?? 3.0,
-      }).toList(),
-      'days': daysToPredict,
-    };
+  print('📅 Requesting $actualDaysToRequest days starting from ${requestBody['start_date']} (to get $daysToPredict future days)');
 
-    final response = await http.post(
-      Uri.parse('$baseUrl$predictEndpoint'),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode(requestBody),
-    ).timeout(const Duration(seconds: 45));
+  final response = await http.post(
+    Uri.parse('$baseUrl$predictEndpoint'),
+    headers: {'Content-Type': 'application/json'},
+    body: json.encode(requestBody),
+  ).timeout(const Duration(seconds: 45));
 
-    print('📡 Backend response status: ${response.statusCode}');
+  print('📡 Backend response status: ${response.statusCode}');
 
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      return _parseBackendResponse(data);
-    } else {
-      throw Exception('Backend error: ${response.statusCode}');
-    }
-  }
-
-  ImprovementPredictionResponse _parseBackendResponse(Map<String, dynamic> data) {
-    print('✅ Parsing backend response...');
-    
-    Map<String, List<ImprovementPrediction>> historicalPredictions = {};
-    Map<String, List<ImprovementPrediction>> futurePredictions = {};
-    
-    // Parse historical predictions
-    if (data['historical_predictions']?['by_date'] != null) {
-      final historical = data['historical_predictions']['by_date'] as Map<String, dynamic>;
-      
-      historical.forEach((date, predictions) {
-        if (predictions is List) {
-          historicalPredictions[date] = predictions.map((p) => 
-            ImprovementPrediction.fromJson(p as Map<String, dynamic>)
-          ).toList();
-        }
-      });
-    }
-    
-    // Parse future predictions
-    if (data['future_predictions']?['by_date'] != null) {
-      final future = data['future_predictions']['by_date'] as Map<String, dynamic>;
-      
-      future.forEach((date, predictions) {
-        if (predictions is List) {
-          futurePredictions[date] = predictions.map((p) => 
-            ImprovementPrediction.fromJson(p as Map<String, dynamic>)
-          ).toList();
-        }
-      });
-    }
-
-    return ImprovementPredictionResponse(
-      historicalPredictions: historicalPredictions,
-      futurePredictions: futurePredictions,
-    );
-  }
-// In improvement_prediction_service.dart, in _parseBackendResponse method
-
-  ImprovementPredictionResponse _generateOfflinePrediction(
-    List<TrainingSession> trainingHistory,
-    int daysToPredict,
-  ) {
-    print('📱 Generating offline predictions...');
-    
-    final now = DateTime.now();
-    final random = Random();
-    
-    Map<String, List<ImprovementPrediction>> futurePredictions = {};
-    
-    // Get unique strokes
-    final strokes = trainingHistory.map((s) => s.strokeType).toSet().toList();
-    
-    for (int i = 1; i <= daysToPredict; i++) {
-      final date = now.add(Duration(days: i)).toIso8601String().split('T')[0];
-      List<ImprovementPrediction> predictions = [];
-      
-      for (String stroke in strokes.take(3)) {
-        final improvement = (random.nextDouble() - 0.5) * 2; // -1 to 1
-        predictions.add(ImprovementPrediction(
-          swimmerId: trainingHistory.first.swimmerId,
-          stroke: stroke,
-          improvement: improvement,
-          description: improvement > 0 ? 'improvement' : 'decline',
-          reasons: ['Offline prediction', 'Based on training patterns'],
-          topFactors: ['pace', 'distance'],
-        ));
-      }
-      
-      futurePredictions[date] = predictions;
-    }
-
-    return ImprovementPredictionResponse(
-      historicalPredictions: {},
-      futurePredictions: futurePredictions,
-    );
+  if (response.statusCode == 200) {
+    final data = json.decode(response.body);
+    return _parseBackendResponse(data, daysToPredict);
+  } else {
+    throw Exception('Backend error: ${response.statusCode}');
   }
 }
 
+ ImprovementPredictionResponse _parseBackendResponse(
+  Map<String, dynamic> data,
+  [int? maxFutureDays]
+) {
+  print('✅ Parsing backend response...');
+  
+  final today = DateTime.now();
+  final todayString = today.toIso8601String().split('T')[0];
+  
+  Map<String, List<ImprovementPrediction>> historicalPredictions = {};
+  Map<String, List<ImprovementPrediction>> futurePredictions = {};
+  
+  // Parse historical predictions
+  if (data['historical_predictions']?['by_date'] != null) {
+    final historical = data['historical_predictions']['by_date'] as Map<String, dynamic>;
+    
+    historical.forEach((date, predictions) {
+      if (predictions is List) {
+        historicalPredictions[date] = predictions.map((p) {
+          final prediction = p as Map<String, dynamic>;
+          prediction['date'] = date;
+          return ImprovementPrediction.fromJson(prediction);
+        }).toList();
+      }
+    });
+  }
+  
+  // Parse future predictions
+  if (data['future_predictions']?['by_date'] != null) {
+    final future = data['future_predictions']['by_date'] as Map<String, dynamic>;
+    
+    // ✅ Get all future dates and sort them
+    List<String> futureDates = future.keys
+        .where((date) => date.compareTo(todayString) > 0)
+        .toList()
+      ..sort();
+    
+    // ✅ Take only the requested number of future days
+    if (maxFutureDays != null && futureDates.length > maxFutureDays) {
+      futureDates = futureDates.take(maxFutureDays).toList();
+    }
+    
+    print('📅 Available future dates in response: ${future.keys.where((date) => date.compareTo(todayString) > 0).length}');
+    print('📅 Taking first ${futureDates.length} future dates');
+    
+    for (String date in futureDates) {
+      final predictions = future[date];
+      if (predictions is List) {
+        futurePredictions[date] = predictions.map((p) {
+          final prediction = p as Map<String, dynamic>;
+          prediction['date'] = date;
+          return ImprovementPrediction.fromJson(prediction);
+        }).toList();
+      }
+    }
+    
+    print('📅 Filtered future predictions: ${futurePredictions.keys.length} days');
+    print('📅 Future dates: ${futurePredictions.keys.toList()}');
+  }
+
+  return ImprovementPredictionResponse(
+    historicalPredictions: historicalPredictions,
+    futurePredictions: futurePredictions,
+  );
+}
+ ImprovementPredictionResponse _generateOfflinePrediction(
+  List<TrainingSession> trainingHistory,
+  int daysToPredict,
+) {
+  print('📱 Generating offline predictions...');
+  
+  final now = DateTime.now();
+  final random = Random();
+  
+  Map<String, List<ImprovementPrediction>> futurePredictions = {};
+  
+  final strokes = trainingHistory.map((s) => s.strokeType).toSet().toList();
+  
+  for (int i = 1; i <= daysToPredict; i++) {
+    final date = now.add(Duration(days: i)).toIso8601String().split('T')[0];
+    List<ImprovementPrediction> predictions = [];
+    
+    for (String stroke in strokes.take(3)) {
+      final improvement = (random.nextDouble() - 0.5) * 2;
+      predictions.add(ImprovementPrediction(
+        swimmerId: trainingHistory.first.swimmerId,
+        stroke: stroke,
+        improvement: improvement,
+        description: improvement > 0 ? 'improvement' : 'decline',
+        reasons: ['Offline prediction', 'Based on training patterns'],
+        topFactors: ['pace', 'distance'],
+        date: date, // ✅ Include the date here
+      ));
+    }
+    
+    futurePredictions[date] = predictions;
+  }
+
+  return ImprovementPredictionResponse(
+    historicalPredictions: {},
+    futurePredictions: futurePredictions,
+  );
+}}
 // ✅ Models matching your screen expectations
 
 // In lib/services/improvement_prediction_service.dart
