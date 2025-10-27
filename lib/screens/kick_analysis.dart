@@ -188,7 +188,7 @@ class _KickAnalysisScreenState extends State<KickAnalysisScreen>
   /// Send image to backend for prediction
   Future<void> _sendImageToBackend(File imageFile) async {
     try {
-      var uri = Uri.parse("http://10.0.2.2:8000/analyze");
+      var uri = Uri.parse("https://swimming-kick-analysis-backend.onrender.com/analyze");
       var request = http.MultipartRequest('POST', uri)
         ..files.add(await http.MultipartFile.fromPath('file', imageFile.path));
 
