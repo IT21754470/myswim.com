@@ -15,9 +15,10 @@ class _KickAnalysisScreenState extends State<KickAnalysisScreen>
     with TickerProviderStateMixin {
   File? _selectedImage;
   bool _isLoading = false;
-  String? _predictionResult;
+  String? _classification;
   String? _confidence;
   List<String>? _suggestions;
+  List<String>? _issuesList;
 
   final ImagePicker _picker = ImagePicker();
   late AnimationController _fadeController;
@@ -171,7 +172,7 @@ class _KickAnalysisScreenState extends State<KickAnalysisScreen>
         setState(() {
           _selectedImage = File(pickedFile.path);
           _isLoading = true;
-          _predictionResult = null;
+          _classification = null;
           _confidence = null;
           _suggestions = null;
         });
@@ -187,7 +188,7 @@ class _KickAnalysisScreenState extends State<KickAnalysisScreen>
   /// Send image to backend for prediction
   Future<void> _sendImageToBackend(File imageFile) async {
     try {
-      var uri = Uri.parse("https://swimming-kick-analysis-backend-production.up.railway.app/predict");
+      var uri = Uri.parse("https://swimming-kick-analysis-backend.onrender.com/analyze");
       var request = http.MultipartRequest('POST', uri)
         ..files.add(await http.MultipartFile.fromPath('file', imageFile.path));
 
@@ -197,13 +198,32 @@ class _KickAnalysisScreenState extends State<KickAnalysisScreen>
       if (response.statusCode == 200) {
         var data = json.decode(responseData);
 
+        String? classification = data["classification"];
+        double? confidence = data["confidence"];
+
+        List<String>? tips;
+        List<String>? issues;
+
+        if (data["coach_feedback"] != null &&
+            data["coach_feedback"]["content"] != null) {
+          try {
+            var contentJson = json.decode(data["coach_feedback"]["content"]);
+            tips = (contentJson["tips"] as List<dynamic>).cast<String>();
+            issues = (contentJson["issues"] as List<dynamic>).cast<String>();
+          } catch (e) {
+            tips = null;
+            issues = null;
+          }
+        }
+
         setState(() {
           _isLoading = false;
-          _predictionResult = data["class"] ?? "No prediction received";
-          _confidence = (data["confidence"] != null)
-              ? (data["confidence"] * 100).toStringAsFixed(2)
+          _classification = classification ?? "No classification received";
+          _confidence = (confidence != null)
+              ? (confidence * 100).toStringAsFixed(2)
               : null;
-          _suggestions = data["suggestions"]?.cast<String>();
+          _suggestions = tips; // for improvement tips
+          _issuesList = issues; // new variable to store issues
         });
 
         _fadeController.forward();
@@ -240,7 +260,7 @@ class _KickAnalysisScreenState extends State<KickAnalysisScreen>
     if (_selectedImage != null) {
       setState(() {
         _isLoading = true;
-        _predictionResult = null;
+        _classification = null;
         _confidence = null;
         _suggestions = null;
       });
@@ -303,7 +323,7 @@ class _KickAnalysisScreenState extends State<KickAnalysisScreen>
                   // Analysis Results
                   if (_isLoading)
                     _buildLoadingWidget()
-                  else if (_predictionResult != null)
+                  else if (_classification != null)
                     _buildResultsSection(),
 
                   const SizedBox(height: 30),
@@ -320,7 +340,7 @@ class _KickAnalysisScreenState extends State<KickAnalysisScreen>
       ),
 
       // Floating Action Button
-      floatingActionButton: _predictionResult != null && !_isLoading
+      floatingActionButton: _classification != null && !_isLoading
           ? FloatingActionButton.extended(
               onPressed: () => Navigator.pop(context, true),
               backgroundColor: const Color(0xFF43cea2),
@@ -417,7 +437,7 @@ class _KickAnalysisScreenState extends State<KickAnalysisScreen>
                     width: double.infinity,
                     fit: BoxFit.cover,
                   ),
-                  if (!_isLoading && _predictionResult == null)
+                  if (!_isLoading && _classification == null)
                     Positioned(
                       top: 12,
                       right: 12,
@@ -431,7 +451,7 @@ class _KickAnalysisScreenState extends State<KickAnalysisScreen>
                           onPressed: () {
                             setState(() {
                               _selectedImage = null;
-                              _predictionResult = null;
+                              _classification = null;
                               _confidence = null;
                               _suggestions = null;
                             });
@@ -539,7 +559,7 @@ class _KickAnalysisScreenState extends State<KickAnalysisScreen>
   }
 
   Widget _buildResultsSection() {
-    bool isTrue = _predictionResult?.toLowerCase() == "true";
+    bool isTrue = _classification?.toLowerCase() == "true";
 
     return FadeTransition(
       opacity: _fadeAnimation,
@@ -593,7 +613,7 @@ class _KickAnalysisScreenState extends State<KickAnalysisScreen>
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    _predictionResult!,
+                    _classification!,
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -667,6 +687,69 @@ class _KickAnalysisScreenState extends State<KickAnalysisScreen>
                                       style: TextStyle(
                                         fontSize: 14,
                                         color: Colors.blue[800],
+                                        height: 1.4,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ))
+                        .toList()),
+                  ],
+                ),
+              ),
+            ],
+            if (_issuesList != null && _issuesList!.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.red[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded,
+                            color: Colors.red[700], size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Detected Issues',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    ...(_issuesList!
+                        .map((issue) => Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: 6,
+                                    height: 6,
+                                    margin: const EdgeInsets.only(
+                                        top: 6, right: 12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red[600],
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      issue,
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.red[800],
                                         height: 1.4,
                                       ),
                                     ),
